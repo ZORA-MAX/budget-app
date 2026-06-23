@@ -50,12 +50,22 @@ function EditModal({ txNames, count, currentCatKey, currentSubKey, currentTags, 
             </div>
             <p className="text-xs text-ink-tertiary mb-2">子分类</p>
             <div className="flex flex-wrap gap-1.5">
-              {cat.subs.map(s => (
+              {cat.subs.filter(s => s.label).map(s => (
                 <button key={s.key} onClick={() => setSubKey(s.key)}
                   className={`text-xs px-3 py-1.5 rounded-lg border ${subKey === s.key ? 'border-brand bg-brand-faint text-brand font-medium' : 'border-gray-200 text-ink-secondary'}`}>
                   {s.label}
                 </button>
               ))}
+              <button onClick={() => {
+                const name = prompt('输入新的子分类名称：')
+                if (name && name.trim()) {
+                  const newKey = 'custom_' + Date.now()
+                  cat.subs.push({ key: newKey, label: name.trim(), keywords: [] })
+                  setSubKey(newKey)
+                }
+              }} className="text-xs px-3 py-1.5 rounded-lg border border-dashed border-gray-300 text-ink-tertiary hover:border-brand hover:text-brand transition-colors">
+                + 添加子分类
+              </button>
             </div>
           </>) : (<>
             <p className="text-xs text-ink-tertiary mb-3">选择消费性质（可多选）</p>

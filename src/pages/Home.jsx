@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from 'react'
+import { useState, useCallback, useMemo, useEffect } from 'react'
 import Dashboard from '../components/Dashboard'
 import { parseCSV, parseExcel, groupByMonth, txKey } from '../lib/csv-parser'
 import { saveMonth, saveOverrides } from '../lib/storage'
@@ -15,7 +15,6 @@ export default function Home({ onDataSaved }) {
   const handleFile = useCallback((file) => {
     setError('')
     const isExcel = /\.xlsx?$/i.test(file.name)
-
     if (isExcel) {
       const reader = new FileReader()
       reader.onload = e => {
@@ -56,19 +55,24 @@ export default function Home({ onDataSaved }) {
 
   const removeFile = source => { setFiles(prev => prev.filter(f => f.source !== source)); setAnalyzed(false) }
 
+  // Override: save immediately
   const handleOverride = useCallback((key, classification) => {
     setOverrides(prev => {
       const next = { ...prev, [key]: classification }
-      // Background save
-      const allMonths = new Set()
-      for (const f of files) for (const tx of f.txs) {
-        if (txKey(tx) === key) allMonths.add(`${tx.date.getFullYear()}-${String(tx.date.getMonth()+1).padStart(2,'0')}`)
+      // Save overrides for all affected months
+      for (const f of files) {
+        for (const tx of f.txs) {
+          if (txKey(tx) === key) {
+            const mk = `${tx.date.getFullYear()}-${String(tx.date.getMonth()+1).padStart(2,'0')}`
+            saveOverrides(mk, next).catch(console.error)
+          }
+        }
       }
-      for (const m of allMonths) saveOverrides(m, next).catch(console.error)
       return next
     })
   }, [files])
 
+  // Delete: save immediately
   const handleDelete = useCallback(key => {
     setDeletedKeys(prev => new Set([...prev, key]))
   }, [])
@@ -87,6 +91,16 @@ export default function Home({ onDataSaved }) {
     setSaving(false)
   }
 
+  // Auto-save whenever transactions change (delete/add) while in analyzed mode
+  useEffect(() => {
+    if (!analyzed || allTxs.length === 0) return
+    const monthly = groupByMonth(allTxs)
+    for (const [key, txs] of Object.entries(monthly)) {
+      saveMonth(key, txs).catch(console.error)
+    }
+    onDataSaved?.()
+  }, [analyzed, deletedKeys, manualTxs])
+
   if (analyzed) {
     return (
       <div>
@@ -101,6 +115,7 @@ export default function Home({ onDataSaved }) {
           ))}
           {manualTxs.length > 0 && <span className="text-xs px-2.5 py-1 rounded-full bg-amber-50 text-amber-600">✏️ 手动 {manualTxs.length}笔</span>}
           {deletedKeys.size > 0 && <span className="text-xs px-2.5 py-1 rounded-full bg-red-50 text-red-500">已删 {deletedKeys.size}笔</span>}
+          <span className="text-xs px-2.5 py-1 rounded-full bg-green-50 text-green-600">💾 自动保存中</span>
         </div>
         <Dashboard transactions={allTxs} overrides={overrides} onOverride={handleOverride} onDelete={handleDelete} onAdd={handleAdd} />
       </div>
@@ -128,18 +143,18 @@ export default function Home({ onDataSaved }) {
         onClick={() => document.getElementById('file-input').click()}
         onDragOver={e => { e.preventDefault(); e.currentTarget.classList.add('border-brand','bg-brand-faint') }}
         onDragLeave={e => e.currentTarget.classList.remove('border-brand','bg-brand-faint')}
-        onDrop={e => { e.preventDefault(); e.currentTarget.classList.remove('border-brand','bg-brand-faint'); if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]) }}>
+        onDrop={e => { e.preventDefault(); e.currentTarget.classList.remove('border-brand','bg-brand-faint'); Array.from(e.dataTransfer.files).forEach(f => handleFile(f)) }}>
         <div className="text-2xl mb-2">📂</div>
         <div className="text-sm font-medium text-ink dark:text-white">导入账单文件</div>
-        <div className="text-xs text-ink-secondary mt-1">支持 CSV 和 Excel（.xlsx）格式，自动识别</div>
+        <div className="text-xs text-ink-secondary mt-1">支持 CSV 和 Excel，可同时选择多个文件</div>
         <div className="flex justify-center gap-2 mt-3">
           <span className="text-xs px-2 py-0.5 rounded-full bg-green-50 text-green-600">💬 微信</span>
           <span className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-600">🔵 支付宝</span>
           <span className="text-xs px-2 py-0.5 rounded-full bg-purple-50 text-purple-600">📒 记账本</span>
           <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">📊 Excel</span>
         </div>
-        <input id="file-input" type="file" accept=".csv,.xlsx,.xls" className="hidden"
-          onChange={e => { if (e.target.files[0]) handleFile(e.target.files[0]); e.target.value = '' }} />
+        <input id="file-input" type="file" accept=".csv,.xlsx,.xls" multiple className="hidden"
+          onChange={e => { Array.from(e.target.files).forEach(f => handleFile(f)); e.target.value = '' }} />
       </div>
 
       {files.length > 0 ? (
@@ -150,17 +165,13 @@ export default function Home({ onDataSaved }) {
         <div className="bg-white dark:bg-surface-card-dark rounded-xl p-4 mt-4">
           <div className="text-xs font-medium text-ink-secondary uppercase tracking-wider mb-3">如何导出账单</div>
           <div className="space-y-4">
-            {[
-              ['1','微信账单','微信 → 我 → 支付 → 钱包 → 账单 → 下载账单 → 选月份 → CSV'],
+            {[['1','微信账单','微信 → 我 → 支付 → 钱包 → 账单 → 下载账单 → CSV'],
               ['2','支付宝账单','支付宝 → 搜索"账单" → 所有交易 → 导出 → CSV'],
-              ['3','记账本 / Excel','支持大部分记账软件导出的 CSV 和 Excel 格式'],
+              ['3','记账本 / Excel','支持大部分记账软件导出的 CSV 和 Excel 格式']
             ].map(([n,t,d]) => (
               <div key={n} className="flex gap-3">
                 <div className="w-6 h-6 rounded-full bg-brand text-white text-xs font-semibold flex items-center justify-center flex-shrink-0 mt-0.5">{n}</div>
-                <div>
-                  <div className="text-sm font-medium text-ink dark:text-white">{t}</div>
-                  <div className="text-xs text-ink-secondary leading-relaxed mt-1">{d}</div>
-                </div>
+                <div><div className="text-sm font-medium text-ink dark:text-white">{t}</div><div className="text-xs text-ink-secondary leading-relaxed mt-1">{d}</div></div>
               </div>
             ))}
           </div>
