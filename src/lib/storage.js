@@ -1,8 +1,10 @@
 import { openDB } from 'idb'
+import { analysisRowsToMemoryRecords, classificationMemoryKey, mergeMemoryRecord } from './classification-memory.js'
 
 const DB_NAME = 'budget-app'
-const DB_VERSION = 2
+const DB_VERSION = 3
 const STORE_NAME = 'monthly-data'
+const MEMORY_STORE = 'classification-memory'
 
 async function getDB() {
   return openDB(DB_NAME, DB_VERSION, {
@@ -12,6 +14,9 @@ async function getDB() {
       }
       if (!db.objectStoreNames.contains('overrides')) {
         db.createObjectStore('overrides', { keyPath: 'monthKey' })
+      }
+      if (!db.objectStoreNames.contains(MEMORY_STORE)) {
+        db.createObjectStore(MEMORY_STORE, { keyPath: 'key' })
       }
     },
   })
@@ -117,4 +122,31 @@ export async function loadAllOverrides() {
     Object.assign(merged, record.overrides)
   }
   return merged
+}
+
+export async function loadClassificationMemory() {
+  const db = await getDB()
+  const records = await db.getAll(MEMORY_STORE)
+  return Object.fromEntries(records.map(record => [record.key, record]))
+}
+
+export async function rememberClassification(tx, classification) {
+  const key = classificationMemoryKey(tx)
+  if (!key) return null
+  const db = await getDB()
+  const existing = await db.get(MEMORY_STORE, key)
+  const record = mergeMemoryRecord(existing, tx, classification)
+  if (!record) return null
+  await db.put(MEMORY_STORE, record)
+  return record
+}
+
+export async function importClassificationMemory(analysis) {
+  const db = await getDB()
+  const existing = await loadClassificationMemory()
+  const next = analysisRowsToMemoryRecords(analysis, existing)
+  const records = Object.values(next)
+  const transaction = db.transaction(MEMORY_STORE, 'readwrite')
+  await Promise.all([...records.map(record => transaction.store.put(record)), transaction.done])
+  return next
 }

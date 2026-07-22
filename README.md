@@ -40,5 +40,9 @@ git push -u origin main
 - 月度消费看板（环形图 + 分类明细 + 趋势）
 - AI 消费分析（需配置 Claude API Key）
 - 本地数据持久化（IndexedDB）
+- 从手动分类和消费属性修改中自动学习
+- 支持导入历史分类 JSON，仅学习明确编辑过的记录
+- 精确交易记忆仅保存在浏览器本地，GitHub 不包含原始账单和联系人信息
+- 分类记忆的规则、优先级和隐私边界见 [分类记忆设计](docs/classification-memory.md)
 - 响应式设计，移动端友好
 - 支持暗色模式

@@ -1,6 +1,6 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
 import ReactDOM from 'react-dom'
-import { classify } from '../lib/classifier'
+import { resolveClassification } from '../lib/classifier'
 import { CATEGORIES, getCategoryByKey, ALL_TAGS, TAG_MAP } from '../lib/categories'
 import { fmtMoney, txKey } from '../lib/csv-parser'
 import CatIcon from './CatIcon'
@@ -126,7 +126,7 @@ function AddModal({ onAdd, onClose }) {
 }
 
 /* ═══ Main: Sidebar + List Layout ═══ */
-export default function TransactionList({ transactions, overrides, onOverride, onDelete, onAdd }) {
+export default function TransactionList({ transactions, overrides, memory = {}, onOverride, onDelete, onAdd }) {
   const [editingIdx, setEditingIdx] = useState(null)
   const [showAdd, setShowAdd] = useState(false)
   const [batchMode, setBatchMode] = useState(false)
@@ -141,13 +141,13 @@ export default function TransactionList({ transactions, overrides, onOverride, o
     transactions.map((tx, i) => {
       const key = txKey(tx)
       const ov = overrides[key]
-      const { catKey, subKey } = ov || classify(tx.name, tx.originalCategory)
-      const tags = ov?.tags || getCategoryByKey(catKey).defaultTags || []
+      const resolved = resolveClassification(tx, ov, memory)
+      const { catKey, subKey, tags, source } = resolved
       const cat = getCategoryByKey(catKey)
       const sub = cat.subs?.find(s => s.key === subKey)
-      return { ...tx, idx: i, catKey, subKey, tags, cat, sub, isOverridden: !!ov, txKey: key }
+      return { ...tx, idx: i, catKey, subKey, tags, cat, sub, classificationSource: source, isOverridden: !!ov, txKey: key }
     }),
-  [transactions, overrides])
+  [transactions, overrides, memory])
 
   // Category counts
   const catCounts = useMemo(() => {
@@ -179,9 +179,9 @@ export default function TransactionList({ transactions, overrides, onOverride, o
   const toggleSelect = idx => setSelected(p => { const s = new Set(p); s.has(idx) ? s.delete(idx) : s.add(idx); return s })
   const clearSelect = () => { setSelected(new Set()); setBatchMode(false) }
 
-  const handleSaveSingle = (c, s, t) => { if (editingIdx === null) return; onOverride(txKey(transactions[editingIdx]), { catKey: c, subKey: s, tags: t }); setEditingIdx(null) }
+  const handleSaveSingle = (c, s, t) => { if (editingIdx === null) return; onOverride(txKey(transactions[editingIdx]), { catKey: c, subKey: s, tags: t }, transactions[editingIdx]); setEditingIdx(null) }
   const handleDeleteSingle = () => { if (editingIdx === null) return; onDelete(txKey(transactions[editingIdx])); setEditingIdx(null) }
-  const handleSaveBatch = (c, s, t) => { for (const i of selected) onOverride(txKey(transactions[i]), { catKey: c, subKey: s, tags: t }); setBatchEdit(false); clearSelect() }
+  const handleSaveBatch = (c, s, t) => { for (const i of selected) onOverride(txKey(transactions[i]), { catKey: c, subKey: s, tags: t }, transactions[i]); setBatchEdit(false); clearSelect() }
   const handleDeleteBatch = () => { for (const i of selected) onDelete(txKey(transactions[i])); setBatchEdit(false); clearSelect() }
 
   const editingTx = editingIdx !== null ? classified.find(t => t.idx === editingIdx) : null
@@ -267,6 +267,7 @@ export default function TransactionList({ transactions, overrides, onOverride, o
                       <span className="text-[9px] px-1.5 py-0.5 rounded" style={{ backgroundColor: group.cat.bg, color: group.cat.color }}>{tx.sub?.label || '未分类'}</span>
                       {tx.tags?.slice(0,2).map(t => { const tag = TAG_MAP[t]; return tag ? <span key={t} className="text-[9px] px-1 py-0.5 rounded" style={{ backgroundColor: tag.bg, color: tag.color }}>{tag.label}</span> : null })}
                       {tx.isOverridden && <span className="text-[9px] px-1 py-0.5 rounded bg-amber-50 text-amber-600">手动</span>}
+                      {!tx.isOverridden && tx.classificationSource === 'memory' && <span className="text-[9px] px-1 py-0.5 rounded bg-purple-50 text-purple-600">记忆</span>}
                     </div>
                   </div>
                   <span className="text-[13px] font-medium text-red-500 flex-shrink-0">-{fmtMoney(tx.amount)}</span>

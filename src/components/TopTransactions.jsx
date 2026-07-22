@@ -1,10 +1,10 @@
 import { useMemo } from 'react'
-import { classify } from '../lib/classifier'
+import { resolveClassification } from '../lib/classifier'
 import { getCategoryByKey } from '../lib/categories'
 import { fmtMoney } from '../lib/csv-parser'
 import CatIcon from './CatIcon'
 
-export default function TopTransactions({ transactions, overrides = {} }) {
+export default function TopTransactions({ transactions, overrides = {}, memory = {} }) {
   const top = useMemo(() =>
     [...transactions].sort((a, b) => b.amount - a.amount).slice(0, 8),
   [transactions])
@@ -16,7 +16,7 @@ export default function TopTransactions({ transactions, overrides = {} }) {
         {top.map((tx, i) => {
           const key = `${tx.date.toISOString()}_${tx.amount}_${tx.name}`
           const override = overrides[key]
-          const { catKey } = override || classify(tx.name, tx.originalCategory)
+          const { catKey } = resolveClassification(tx, override, memory)
           const cat = getCategoryByKey(catKey)
           return (
             <div key={i} className="flex items-center gap-3 py-2.5">

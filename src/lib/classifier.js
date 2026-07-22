@@ -1,4 +1,6 @@
-import { CATEGORIES } from './categories'
+import { CATEGORIES, getDefaultTags } from './categories.js'
+import { recallClassification } from './classification-memory.js'
+import { matchPersonalPolicy } from './personal-policy.js'
 
 // Map cashbook's original categories to our category keys
 const CASHBOOK_CAT_MAP = {
@@ -43,12 +45,42 @@ export function classify(name, originalCategory) {
   return { catKey: 'other', subKey: 'unknown' }
 }
 
-export function summarizeByCategory(transactions, overrides = {}) {
+export function resolveClassification(tx, override, memory = {}) {
+  if (override) {
+    return { ...override, tags: override.tags || getDefaultTags(override.catKey, override.subKey), source: 'override' }
+  }
+
+  const learned = recallClassification(tx, memory)
+  if (learned) {
+    return {
+      catKey: learned.catKey,
+      subKey: learned.subKey,
+      tags: learned.tags || getDefaultTags(learned.catKey, learned.subKey),
+      source: 'memory',
+    }
+  }
+
+  const policy = matchPersonalPolicy(tx)
+  if (policy) {
+    return {
+      catKey: policy.catKey,
+      subKey: policy.subKey,
+      tags: policy.tags || getDefaultTags(policy.catKey, policy.subKey),
+      source: 'policy',
+      ruleId: policy.ruleId,
+    }
+  }
+
+  const base = classify(tx?.name, tx?.originalCategory)
+  return { ...base, tags: getDefaultTags(base.catKey, base.subKey), source: 'classifier' }
+}
+
+export function summarizeByCategory(transactions, overrides = {}, memory = {}) {
   const map = {}
   for (const tx of transactions) {
     const key = `${tx.date.toISOString()}_${tx.amount}_${tx.name}`
     const override = overrides[key]
-    const { catKey, subKey } = override || classify(tx.name, tx.originalCategory)
+    const { catKey, subKey } = resolveClassification(tx, override, memory)
 
     if (!map[catKey]) {
       const cat = CATEGORIES.find(c => c.key === catKey) || CATEGORIES.at(-1)

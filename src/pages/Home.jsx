@@ -1,7 +1,13 @@
 import { useState, useCallback, useMemo, useEffect } from 'react'
 import Dashboard from '../components/Dashboard'
 import { parseCSV, parseExcel, groupByMonth, txKey } from '../lib/csv-parser'
-import { saveMonth, saveOverrides } from '../lib/storage'
+import {
+  importClassificationMemory,
+  loadClassificationMemory,
+  rememberClassification,
+  saveMonth,
+  saveOverrides,
+} from '../lib/storage'
 
 export default function Home({ onDataSaved }) {
   const [files, setFiles] = useState([])
@@ -11,6 +17,12 @@ export default function Home({ onDataSaved }) {
   const [overrides, setOverrides] = useState({})
   const [deletedKeys, setDeletedKeys] = useState(new Set())
   const [manualTxs, setManualTxs] = useState([])
+  const [classificationMemory, setClassificationMemory] = useState({})
+  const [memoryNotice, setMemoryNotice] = useState('')
+
+  useEffect(() => {
+    loadClassificationMemory().then(setClassificationMemory).catch(console.error)
+  }, [])
 
   const handleFile = useCallback((file) => {
     setError('')
@@ -46,6 +58,20 @@ export default function Home({ onDataSaved }) {
     setAnalyzed(false)
   }
 
+  const handleMemoryFile = useCallback(async file => {
+    setError('')
+    setMemoryNotice('')
+    try {
+      const analysis = JSON.parse(await file.text())
+      if (!Array.isArray(analysis?.transactions)) throw new Error('缺少 transactions 明细')
+      const memory = await importClassificationMemory(analysis)
+      setClassificationMemory(memory)
+      setMemoryNotice(`已导入历史操作，当前记忆 ${Object.keys(memory).length} 条`)
+    } catch (err) {
+      setError(`分类记忆导入失败：${err.message}`)
+    }
+  }, [])
+
   const allTxs = useMemo(() => {
     const imported = files.flatMap(f => f.txs)
     const all = [...imported, ...manualTxs].filter(tx => !deletedKeys.has(txKey(tx)))
@@ -56,7 +82,7 @@ export default function Home({ onDataSaved }) {
   const removeFile = source => { setFiles(prev => prev.filter(f => f.source !== source)); setAnalyzed(false) }
 
   // Override: save immediately
-  const handleOverride = useCallback((key, classification) => {
+  const handleOverride = useCallback((key, classification, txForMemory) => {
     setOverrides(prev => {
       const next = { ...prev, [key]: classification }
       // Save overrides for all affected months
@@ -70,6 +96,13 @@ export default function Home({ onDataSaved }) {
       }
       return next
     })
+    if (txForMemory) {
+      rememberClassification(txForMemory, classification).then(record => {
+        if (!record) return
+        setClassificationMemory(prev => ({ ...prev, [record.key]: record }))
+        setMemoryNotice('已记住这次分类，下次会自动复用')
+      }).catch(console.error)
+    }
   }, [files])
 
   // Delete: save immediately
@@ -115,9 +148,17 @@ export default function Home({ onDataSaved }) {
           ))}
           {manualTxs.length > 0 && <span className="text-xs px-2.5 py-1 rounded-full bg-amber-50 text-amber-600">✏️ 手动 {manualTxs.length}笔</span>}
           {deletedKeys.size > 0 && <span className="text-xs px-2.5 py-1 rounded-full bg-red-50 text-red-500">已删 {deletedKeys.size}笔</span>}
+          {Object.keys(classificationMemory).length > 0 && <span className="text-xs px-2.5 py-1 rounded-full bg-purple-50 text-purple-600">记忆 {Object.keys(classificationMemory).length}条</span>}
           <span className="text-xs px-2.5 py-1 rounded-full bg-green-50 text-green-600">💾 自动保存中</span>
         </div>
-        <Dashboard transactions={allTxs} overrides={overrides} onOverride={handleOverride} onDelete={handleDelete} onAdd={handleAdd} />
+        {memoryNotice && <div className="text-xs text-purple-600 bg-purple-50 rounded-lg px-3 py-2 mb-3">{memoryNotice}</div>}
+        <button onClick={() => document.getElementById('memory-input').click()}
+          className="text-xs px-3 py-2 rounded-lg bg-white border border-purple-200 text-purple-600 hover:bg-purple-50 mb-4">
+          导入历史分类记忆
+        </button>
+        <input id="memory-input" type="file" accept=".json,application/json" className="hidden"
+          onChange={e => { if (e.target.files[0]) handleMemoryFile(e.target.files[0]); e.target.value = '' }} />
+        <Dashboard transactions={allTxs} overrides={overrides} memory={classificationMemory} onOverride={handleOverride} onDelete={handleDelete} onAdd={handleAdd} />
       </div>
     )
   }
@@ -125,6 +166,7 @@ export default function Home({ onDataSaved }) {
   return (
     <div>
       {error && <div className="bg-red-50 dark:bg-red-950/30 text-red-600 rounded-xl p-3 text-sm mb-3">{error}</div>}
+      {memoryNotice && <div className="text-xs text-purple-600 bg-purple-50 rounded-lg px-3 py-2 mb-3">{memoryNotice}</div>}
       {files.map(f => (
         <div key={f.source} className="flex items-center justify-between bg-green-50 dark:bg-green-950/30 rounded-xl px-4 py-3 mb-2">
           <div className="flex items-center gap-3">
@@ -156,6 +198,13 @@ export default function Home({ onDataSaved }) {
         <input id="file-input" type="file" accept=".csv,.xlsx,.xls" multiple className="hidden"
           onChange={e => { Array.from(e.target.files).forEach(f => handleFile(f)); e.target.value = '' }} />
       </div>
+
+      <button onClick={() => document.getElementById('memory-input').click()}
+        className="w-full mt-2 py-3 bg-white dark:bg-surface-card-dark text-purple-600 rounded-xl text-sm font-medium border border-purple-200 hover:bg-purple-50 transition-colors">
+        导入历史分类记忆 JSON{Object.keys(classificationMemory).length > 0 ? `（已有 ${Object.keys(classificationMemory).length} 条）` : ''}
+      </button>
+      <input id="memory-input" type="file" accept=".json,application/json" className="hidden"
+        onChange={e => { if (e.target.files[0]) handleMemoryFile(e.target.files[0]); e.target.value = '' }} />
 
       {files.length > 0 ? (
         <button onClick={handleAnalyze} className="w-full mt-4 py-3 bg-brand text-white rounded-xl text-sm font-medium hover:bg-brand-light transition-colors">

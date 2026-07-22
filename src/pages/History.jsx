@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { listMonths, loadMonth, loadOverrides, loadAllOverrides, deleteMonth } from '../lib/storage'
+import { listMonths, loadMonth, loadOverrides, loadAllOverrides, deleteMonth, loadClassificationMemory, rememberClassification } from '../lib/storage'
 import { fmtMoney } from '../lib/csv-parser'
 import { summarizeByCategory } from '../lib/classifier'
 import Dashboard from '../components/Dashboard'
@@ -12,13 +12,15 @@ export default function History({ refreshKey }) {
   const [txs, setTxs] = useState([])
   const [overrides, setOverrides] = useState({})
   const [monthSummaries, setMonthSummaries] = useState({})
+  const [memory, setMemory] = useState({})
 
   // Load all saved months
   useEffect(() => {
     (async () => {
       setLoading(true)
-      const keys = await listMonths()
+      const [keys, learnedMemory] = await Promise.all([listMonths(), loadClassificationMemory()])
       setMonths(keys)
+      setMemory(learnedMemory)
 
       const summaries = {}
       for (const key of keys) {
@@ -26,7 +28,7 @@ export default function History({ refreshKey }) {
         if (data) {
           const ov = await loadOverrides(key)
           const total = data.reduce((s, t) => s + t.amount, 0)
-          const byCat = summarizeByCategory(data, ov)
+          const byCat = summarizeByCategory(data, ov, learnedMemory)
           summaries[key] = { total, count: data.length, topCat: byCat[0]?.cat, byCat }
         }
       }
@@ -47,12 +49,17 @@ export default function History({ refreshKey }) {
   }, [selectedMonth])
 
   // Handle override changes in history view
-  const handleOverride = useCallback((key, classification) => {
+  const handleOverride = useCallback((key, classification, txForMemory) => {
     setOverrides(prev => {
       const next = { ...prev, [key]: classification }
       if (selectedMonth) saveOverrides(selectedMonth, next).catch(console.error)
       return next
     })
+    if (txForMemory) {
+      rememberClassification(txForMemory, classification).then(record => {
+        if (record) setMemory(prev => ({ ...prev, [record.key]: record }))
+      }).catch(console.error)
+    }
   }, [selectedMonth])
 
   const handleDelete = useCallback((key) => {
@@ -77,7 +84,7 @@ export default function History({ refreshKey }) {
     for (const key of months) {
       const data = await loadMonth(key)
       const ov = await loadOverrides(key)
-      const byCat = summarizeByCategory(data || [], ov)
+      const byCat = summarizeByCategory(data || [], ov, memory)
       allData[key] = {
         transactions: (data || []).map(tx => ({
           date: tx.date.toISOString().split('T')[0],
@@ -106,7 +113,7 @@ export default function History({ refreshKey }) {
     return (
       <div>
         <button onClick={() => setSelectedMonth(null)} className="text-brand text-sm mb-4 hover:underline">← 返回历史列表</button>
-        <Dashboard transactions={txs} overrides={overrides} onOverride={handleOverride} onDelete={handleDelete} onAdd={handleAdd} />
+        <Dashboard transactions={txs} overrides={overrides} memory={memory} onOverride={handleOverride} onDelete={handleDelete} onAdd={handleAdd} />
       </div>
     )
   }

@@ -70,6 +70,7 @@ export const CATEGORIES = [
       { key: 'cleaning', label: '清洁用品', keywords: ['清洁','洗衣液','洗洁精','垃圾袋','拖把'] },
       { key: 'personal', label: '洗护个护', keywords: ['洗护','沐浴','牙膏','洗面奶','洗发水'] },
       { key: 'paper', label: '纸品', keywords: ['纸巾','抽纸','卷纸','湿巾'] },
+      { key: 'online_grocery', label: '网络超市', keywords: ['七鲜','盒马','叮咚','朴朴','网络超市'] },
       { key: 'misc_daily', label: '生活小物', keywords: ['日用','便利店','711','全家','罗森','超市','物美','华润','永辉','大润发','沃尔玛','盒马','叮咚','朴朴','拼多多','淘宝','京东','天猫','唯品会','平台商户','先用后付','闲鱼','小红书','抖音','得物','快递','物流','速递','到付','寄件'] },
       { key: 'pet', label: '宠物用品', keywords: ['宠物','猫粮','狗粮','猫砂','宠物医院'] },
     ]
@@ -84,6 +85,7 @@ export const CATEGORIES = [
       { key: 'haircut', label: '理发', keywords: ['理发','美发','剪发'] },
       { key: 'nails', label: '美甲', keywords: ['美甲','美睫'] },
       { key: 'accessories', label: '配饰', keywords: ['饰品','首饰','手表','眼镜','配饰'] },
+      { key: 'camera', label: '相机租赁', keywords: ['相机租','ccd','gr3x','佳能g12'] },
     ]
   },
   {
@@ -183,10 +185,10 @@ export const CATEGORIES = [
     color: '#8e8e93', bg: '#f1efe8', defaultTags: ['non_expense','accounting'],
     subs: [
       { key: 'credit_card', label: '信用卡还款', keywords: ['信用卡','还款','花呗'] },
-      { key: 'loan', label: '借还款', keywords: ['借款','还钱','借钱','拆借','转账','发给','收款'] },
+      { key: 'loan', label: '借还款', keywords: ['借款','还钱','借钱','拆借','转账'] },
       { key: 'aa', label: 'AA', keywords: ['AA','均摊'] },
       { key: 'reimburse', label: '报销', keywords: ['报销'] },
-      { key: 'deposit_ref', label: '押金退还', keywords: ['退还','退款','退押金','deposit','发给','收款'] },
+      { key: 'deposit_ref', label: '押金退还', keywords: ['退还','退款','退押金','deposit'] },
     ]
   },
   {
@@ -208,6 +210,11 @@ for (const cat of CATEGORIES) {
   for (const sub of cat.subs) SUB_MAP[sub.key] = { ...sub, parentKey: cat.key }
 }
 export function getCategoryByKey(key) { return CAT_MAP[key] || CAT_MAP['other'] }
+export function getDefaultTags(catKey, subKey) {
+  const cat = getCategoryByKey(catKey)
+  const sub = cat.subs?.find(item => item.key === subKey)
+  return sub?.defaultTags || cat.defaultTags || []
+}
 export const DIMENSION_LABELS = {
   rigid:'刚需固定', elastic:'弹性消费', growth:'提升投资', social:'人情流转',
   emotion:'情绪消费', efficiency:'效率支出', fixed:'固定支出', health:'健康',
