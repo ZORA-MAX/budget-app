@@ -1,0 +1,15 @@
+.git
+.vercel
+node_modules
+dist
+
+# Local handoff notes and OCR caches are not needed at runtime.
+PROJECT_MEMORY.md
+*.traineddata
+
+# This is an old nested project copy; deploy the repository root only.
+budget-app
+
+# Never upload local bill-image folders.
+screenshots
+bill-screenshots
