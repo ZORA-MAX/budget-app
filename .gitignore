@@ -6,3 +6,4 @@ dist
 *.log
 历史账单/
 budget-analysis-*.json
+.env*
