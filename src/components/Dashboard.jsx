@@ -18,10 +18,16 @@ export default function Dashboard({ transactions, overrides = {}, memory = {}, o
 
   const txs = useMemo(() => monthlyMap[selectedMonth] || [], [monthlyMap, selectedMonth])
   const byCat = useMemo(() => summarizeByCategory(txs, overrides, memory), [txs, overrides, memory])
-  const total = useMemo(() => txs.reduce((s, t) => s + t.amount, 0), [txs])
+  const total = useMemo(() => txs.reduce((sum, tx) => {
+    const override = overrides[txKey(tx)]
+    return sum + (Number.isFinite(override?.editedAmount) ? override.editedAmount : tx.amount)
+  }, 0), [txs, overrides])
 
   const prevKey = monthKeys[monthKeys.indexOf(selectedMonth) + 1]
-  const prevTotal = prevKey ? (monthlyMap[prevKey] || []).reduce((s, t) => s + t.amount, 0) : 0
+  const prevTotal = prevKey ? (monthlyMap[prevKey] || []).reduce((sum, tx) => {
+    const override = overrides[txKey(tx)]
+    return sum + (Number.isFinite(override?.editedAmount) ? override.editedAmount : tx.amount)
+  }, 0) : 0
   const diff = total - prevTotal
 
   // Per-transaction tag totals
@@ -30,8 +36,13 @@ export default function Dashboard({ transactions, overrides = {}, memory = {}, o
     for (const tx of txs) {
       const key = txKey(tx)
       const ov = overrides[key]
-      const { tags } = resolveClassification(tx, ov, memory)
-      const share = tx.amount / (tags.length || 1)
+      const effectiveTx = {
+        ...tx,
+        name: ov?.editedName ?? tx.name,
+        amount: Number.isFinite(ov?.editedAmount) ? ov.editedAmount : tx.amount,
+      }
+      const { tags } = resolveClassification(effectiveTx, ov, memory)
+      const share = effectiveTx.amount / (tags.length || 1)
       for (const t of tags) {
         if (!map[t]) map[t] = 0
         map[t] += share
@@ -43,9 +54,12 @@ export default function Dashboard({ transactions, overrides = {}, memory = {}, o
   const monthlyTotals = useMemo(() =>
     monthKeys.slice().reverse().map(k => ({
       label: k.split('-')[1] + '月',
-      total: (monthlyMap[k] || []).reduce((s, t) => s + t.amount, 0)
+      total: (monthlyMap[k] || []).reduce((sum, tx) => {
+        const override = overrides[txKey(tx)]
+        return sum + (Number.isFinite(override?.editedAmount) ? override.editedAmount : tx.amount)
+      }, 0)
     })),
-  [monthKeys, monthlyMap])
+  [monthKeys, monthlyMap, overrides])
 
   if (txs.length === 0) return null
 

@@ -1,25 +1,36 @@
 import { useMemo } from 'react'
 import { resolveClassification } from '../lib/classifier'
 import { getCategoryByKey } from '../lib/categories'
-import { fmtMoney } from '../lib/csv-parser'
+import { fmtMoney, txKey } from '../lib/csv-parser'
 import CatIcon from './CatIcon'
 
 export default function TopTransactions({ transactions, overrides = {}, memory = {} }) {
   const top = useMemo(() =>
-    [...transactions].sort((a, b) => b.amount - a.amount).slice(0, 8),
-  [transactions])
+    transactions
+      .map(tx => {
+        const key = txKey(tx)
+        const override = overrides[key]
+        return {
+          ...tx,
+          name: override?.editedName ?? tx.name,
+          amount: Number.isFinite(override?.editedAmount) ? override.editedAmount : tx.amount,
+          originalKey: key,
+          override,
+        }
+      })
+      .sort((a, b) => b.amount - a.amount)
+      .slice(0, 8),
+  [transactions, overrides])
 
   return (
     <div className="bg-white dark:bg-surface-card-dark rounded-xl p-4">
       <div className="text-xs font-medium text-ink-secondary uppercase tracking-wider mb-3">最大单笔支出</div>
       <div className="divide-y divide-gray-100 dark:divide-gray-800">
         {top.map((tx, i) => {
-          const key = `${tx.date.toISOString()}_${tx.amount}_${tx.name}`
-          const override = overrides[key]
-          const { catKey } = resolveClassification(tx, override, memory)
+          const { catKey } = resolveClassification(tx, tx.override, memory)
           const cat = getCategoryByKey(catKey)
           return (
-            <div key={i} className="flex items-center gap-3 py-2.5">
+            <div key={tx.originalKey || i} className="flex items-center gap-3 py-2.5">
               <CatIcon iconKey={cat.icon} color={cat.color} bg={cat.bg} size={36} />
               <div className="flex-1 min-w-0">
                 <div className="text-sm font-medium text-ink dark:text-white truncate">{tx.name || '未知'}</div>

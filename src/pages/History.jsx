@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { listMonths, loadMonth, loadOverrides, loadAllOverrides, deleteMonth, loadClassificationMemory, rememberClassification } from '../lib/storage'
-import { fmtMoney } from '../lib/csv-parser'
+import { fmtMoney, txKey } from '../lib/csv-parser'
 import { summarizeByCategory } from '../lib/classifier'
 import Dashboard from '../components/Dashboard'
 import { saveOverrides } from '../lib/storage'
@@ -27,7 +27,10 @@ export default function History({ refreshKey }) {
         const data = await loadMonth(key)
         if (data) {
           const ov = await loadOverrides(key)
-          const total = data.reduce((s, t) => s + t.amount, 0)
+          const total = data.reduce((sum, tx) => {
+            const override = ov[txKey(tx)]
+            return sum + (Number.isFinite(override?.editedAmount) ? override.editedAmount : tx.amount)
+          }, 0)
           const byCat = summarizeByCategory(data, ov, learnedMemory)
           summaries[key] = { total, count: data.length, topCat: byCat[0]?.cat, byCat }
         }
@@ -86,12 +89,15 @@ export default function History({ refreshKey }) {
       const ov = await loadOverrides(key)
       const byCat = summarizeByCategory(data || [], ov, memory)
       allData[key] = {
-        transactions: (data || []).map(tx => ({
-          date: tx.date.toISOString().split('T')[0],
-          name: tx.name,
-          amount: tx.amount,
-          source: tx.source,
-        })),
+        transactions: (data || []).map(tx => {
+          const override = ov[txKey(tx)]
+          return {
+            date: tx.date.toISOString().split('T')[0],
+            name: override?.editedName ?? tx.name,
+            amount: Number.isFinite(override?.editedAmount) ? override.editedAmount : tx.amount,
+            source: tx.source,
+          }
+        }),
         overrides: ov,
         summary: byCat.map(c => ({
           category: c.cat.label,

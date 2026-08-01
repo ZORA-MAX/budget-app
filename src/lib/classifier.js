@@ -80,20 +80,22 @@ export function summarizeByCategory(transactions, overrides = {}, memory = {}) {
   for (const tx of transactions) {
     const key = `${tx.date.toISOString()}_${tx.amount}_${tx.name}`
     const override = overrides[key]
-    const { catKey, subKey } = resolveClassification(tx, override, memory)
+    const effectiveAmount = Number.isFinite(override?.editedAmount) ? override.editedAmount : tx.amount
+    const effectiveTx = { ...tx, name: override?.editedName ?? tx.name, amount: effectiveAmount }
+    const { catKey, subKey } = resolveClassification(effectiveTx, override, memory)
 
     if (!map[catKey]) {
       const cat = CATEGORIES.find(c => c.key === catKey) || CATEGORIES.at(-1)
       map[catKey] = { cat, total: 0, count: 0, subMap: {} }
     }
-    map[catKey].total += tx.amount
+    map[catKey].total += effectiveAmount
     map[catKey].count += 1
 
     if (!map[catKey].subMap[subKey]) {
       const sub = map[catKey].cat.subs.find(s => s.key === subKey) || { key: subKey, label: '其他' }
       map[catKey].subMap[subKey] = { sub, total: 0, count: 0 }
     }
-    map[catKey].subMap[subKey].total += tx.amount
+    map[catKey].subMap[subKey].total += effectiveAmount
     map[catKey].subMap[subKey].count += 1
   }
 

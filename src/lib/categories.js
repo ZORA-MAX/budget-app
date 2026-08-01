@@ -203,12 +203,120 @@ export const CATEGORIES = [
   },
 ]
 
+const TAXONOMY_STORAGE_KEY = 'budget-app-taxonomy-v1'
+
+function hydrateTaxonomy() {
+  if (typeof window === 'undefined') return
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(TAXONOMY_STORAGE_KEY) || 'null')
+    if (Array.isArray(saved?.categories) && saved.categories.length > 0) {
+      CATEGORIES.splice(0, CATEGORIES.length, ...saved.categories)
+    }
+    if (Array.isArray(saved?.tags) && saved.tags.length > 0) {
+      ALL_TAGS.splice(0, ALL_TAGS.length, ...saved.tags)
+    }
+  } catch {
+    // Ignore malformed browser data and keep the built-in taxonomy.
+  }
+}
+
+function persistTaxonomy() {
+  if (typeof window === 'undefined') return
+  window.localStorage.setItem(TAXONOMY_STORAGE_KEY, JSON.stringify({ categories: CATEGORIES, tags: ALL_TAGS }))
+}
+
+hydrateTaxonomy()
+
 export const CAT_MAP = {}
 export const SUB_MAP = {}
-for (const cat of CATEGORIES) {
-  CAT_MAP[cat.key] = cat
-  for (const sub of cat.subs) SUB_MAP[sub.key] = { ...sub, parentKey: cat.key }
+
+function rebuildTaxonomyMaps() {
+  for (const key of Object.keys(CAT_MAP)) delete CAT_MAP[key]
+  for (const key of Object.keys(SUB_MAP)) delete SUB_MAP[key]
+  for (const key of Object.keys(TAG_MAP)) delete TAG_MAP[key]
+
+  for (const tag of ALL_TAGS) TAG_MAP[tag.key] = tag
+  for (const cat of CATEGORIES) {
+    CAT_MAP[cat.key] = cat
+    for (const sub of cat.subs || []) SUB_MAP[sub.key] = { ...sub, parentKey: cat.key }
+  }
 }
+
+rebuildTaxonomyMaps()
+
+function customKey(prefix) {
+  return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`
+}
+
+export function addCategory(label) {
+  const key = customKey('custom_cat')
+  const sub = { key: customKey('custom_sub'), label: '未分类', keywords: [] }
+  const category = {
+    key,
+    label: label.trim(),
+    icon: 'other',
+    color: '#534ab7',
+    bg: '#eeedfe',
+    defaultTags: [],
+    subs: [sub],
+  }
+  CATEGORIES.push(category)
+  rebuildTaxonomyMaps()
+  persistTaxonomy()
+  return category
+}
+
+export function renameCategory(key, label) {
+  const category = CAT_MAP[key]
+  if (!category) return null
+  category.label = label.trim()
+  rebuildTaxonomyMaps()
+  persistTaxonomy()
+  return category
+}
+
+export function addSubcategory(catKey, label) {
+  const category = CAT_MAP[catKey]
+  if (!category) return null
+  const sub = { key: customKey('custom_sub'), label: label.trim(), keywords: [] }
+  category.subs.push(sub)
+  rebuildTaxonomyMaps()
+  persistTaxonomy()
+  return sub
+}
+
+export function renameSubcategory(catKey, subKey, label) {
+  const category = CAT_MAP[catKey]
+  const sub = category?.subs?.find(item => item.key === subKey)
+  if (!sub) return null
+  sub.label = label.trim()
+  rebuildTaxonomyMaps()
+  persistTaxonomy()
+  return sub
+}
+
+export function addTag(label) {
+  const tag = {
+    key: customKey('custom_tag'),
+    label: label.trim(),
+    color: '#534ab7',
+    bg: '#eeedfe',
+  }
+  ALL_TAGS.push(tag)
+  rebuildTaxonomyMaps()
+  persistTaxonomy()
+  return tag
+}
+
+export function renameTag(key, label) {
+  const tag = TAG_MAP[key]
+  if (!tag) return null
+  tag.label = label.trim()
+  rebuildTaxonomyMaps()
+  persistTaxonomy()
+  return tag
+}
+
 export function getCategoryByKey(key) { return CAT_MAP[key] || CAT_MAP['other'] }
 export function getDefaultTags(catKey, subKey) {
   const cat = getCategoryByKey(catKey)

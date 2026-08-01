@@ -85,14 +85,11 @@ export default function Home({ onDataSaved }) {
   const handleOverride = useCallback((key, classification, txForMemory) => {
     setOverrides(prev => {
       const next = { ...prev, [key]: classification }
-      // Save overrides for all affected months
-      for (const f of files) {
-        for (const tx of f.txs) {
-          if (txKey(tx) === key) {
-            const mk = `${tx.date.getFullYear()}-${String(tx.date.getMonth()+1).padStart(2,'0')}`
-            saveOverrides(mk, next).catch(console.error)
-          }
-        }
+      // Keep the imported transaction immutable and persist edits as a stable local override.
+      if (txForMemory?.date) {
+        const date = txForMemory.date
+        const mk = `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}`
+        saveOverrides(mk, next).catch(console.error)
       }
       return next
     })
@@ -103,7 +100,7 @@ export default function Home({ onDataSaved }) {
         setMemoryNotice('已记住这次分类，下次会自动复用')
       }).catch(console.error)
     }
-  }, [files])
+  }, [])
 
   // Delete: save immediately
   const handleDelete = useCallback(key => {
