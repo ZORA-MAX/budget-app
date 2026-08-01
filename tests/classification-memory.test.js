@@ -7,7 +7,7 @@ import {
   normalizeMemoryName,
   recallClassification,
 } from '../src/lib/classification-memory.js'
-import { resolveClassification } from '../src/lib/classifier.js'
+import { classify, resolveClassification } from '../src/lib/classifier.js'
 import { matchPersonalPolicy } from '../src/lib/personal-policy.js'
 
 test('normalizes changing order metadata without losing merchant identity', () => {
@@ -56,4 +56,25 @@ test('manual override outranks local memory and personal policy', () => {
   const memory = { [key]: { key, catKey: 'housing', subKey: 'rent', tags: ['rigid', 'fixed'] } }
   const override = { catKey: 'other', subKey: 'unknown', tags: ['pending'] }
   assert.deepEqual(resolveClassification(tx, override, memory), { ...override, source: 'override' })
+})
+
+test('coffee and drink terms outrank generic takeout wording', () => {
+  assert.deepEqual(classify('外卖订单 瑞幸咖啡 饮品', ''), { catKey: 'food', subKey: 'coffee' })
+  assert.deepEqual(resolveClassification({ name: '外卖订单 瑞幸咖啡 饮品' }, null, {}), {
+    catKey: 'food',
+    subKey: 'coffee',
+    tags: ['elastic'],
+    source: 'classifier',
+  })
+})
+
+test('cleans legacy rigid and elastic conflicts by food type', () => {
+  const coffee = { name: '瑞幸咖啡 饮品' }
+  const meal = { name: '工作午餐' }
+  assert.deepEqual(resolveClassification(coffee, {
+    catKey: 'food', subKey: 'takeout', tags: ['rigid', 'elastic', 'emotion'],
+  }, {}).tags, ['elastic', 'emotion'])
+  assert.deepEqual(resolveClassification(meal, {
+    catKey: 'food', subKey: 'work_meal', tags: ['rigid', 'elastic'],
+  }, {}).tags, ['rigid'])
 })

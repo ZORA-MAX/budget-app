@@ -1,4 +1,4 @@
-import { CATEGORIES, getDefaultTags } from './categories.js'
+import { CATEGORIES, getDefaultTags, getPreferredNatureTag, normalizeExclusiveTags } from './categories.js'
 import { recallClassification } from './classification-memory.js'
 import { matchPersonalPolicy } from './personal-policy.js'
 
@@ -24,6 +24,14 @@ export function classify(name, originalCategory) {
   if (!name && !originalCategory) return { catKey: 'other', subKey: 'unknown' }
   const n = (name || '').toLowerCase()
 
+  // Coffee and drink keywords are more specific than generic phrases such as
+  // “外卖订单”, so they must win before the normal category scan.
+  const food = CATEGORIES.find(category => category.key === 'food')
+  const coffee = food?.subs?.find(subcategory => subcategory.key === 'coffee')
+  if (coffee?.keywords.some(keyword => n.includes(keyword.toLowerCase()))) {
+    return { catKey: 'food', subKey: 'coffee' }
+  }
+
   // First try keyword matching (most precise)
   for (const cat of CATEGORIES) {
     for (const sub of cat.subs) {
@@ -45,42 +53,48 @@ export function classify(name, originalCategory) {
   return { catKey: 'other', subKey: 'unknown' }
 }
 
+function finalizeClassification(tx, result) {
+  const tags = result.tags || getDefaultTags(result.catKey, result.subKey)
+  const preferredTag = getPreferredNatureTag(result.catKey, result.subKey, tx?.name)
+  return { ...result, tags: normalizeExclusiveTags(tags, preferredTag) }
+}
+
 export function resolveClassification(tx, override, memory = {}) {
   if (override) {
-    return { ...override, tags: override.tags || getDefaultTags(override.catKey, override.subKey), source: 'override' }
+    return finalizeClassification(tx, { ...override, source: 'override' })
   }
 
   const learned = recallClassification(tx, memory)
   if (learned) {
-    return {
+    return finalizeClassification(tx, {
       catKey: learned.catKey,
       subKey: learned.subKey,
       tags: learned.tags || getDefaultTags(learned.catKey, learned.subKey),
       source: 'memory',
-    }
+    })
   }
 
   if (tx?.mergeMemory?.classification) {
-    return {
+    return finalizeClassification(tx, {
       ...tx.mergeMemory.classification,
       source: 'merge-memory',
       ruleId: tx.mergeMemory.ruleId,
-    }
+    })
   }
 
   const policy = matchPersonalPolicy(tx)
   if (policy) {
-    return {
+    return finalizeClassification(tx, {
       catKey: policy.catKey,
       subKey: policy.subKey,
       tags: policy.tags || getDefaultTags(policy.catKey, policy.subKey),
       source: 'policy',
       ruleId: policy.ruleId,
-    }
+    })
   }
 
   const base = classify(tx?.name, tx?.originalCategory)
-  return { ...base, tags: getDefaultTags(base.catKey, base.subKey), source: 'classifier' }
+  return finalizeClassification(tx, { ...base, source: 'classifier' })
 }
 
 export function summarizeByCategory(transactions, overrides = {}, memory = {}) {

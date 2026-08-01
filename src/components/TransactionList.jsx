@@ -12,6 +12,8 @@ import {
   renameSubcategory,
   addTag,
   renameTag,
+  getDefaultTags,
+  toggleExclusiveTag,
 } from '../lib/categories'
 import { fmtMoney, txKey } from '../lib/csv-parser'
 import CatIcon from './CatIcon'
@@ -68,7 +70,7 @@ function TaxonomyEditor({ editor, onSubmit, onClose }) {
 function EditModal({ txName, currentAmount, count, mergeMemory, currentCatKey, currentSubKey, currentTags, onSave, onDelete, onClose }) {
   const [catKey, setCatKey] = useState(currentCatKey)
   const [subKey, setSubKey] = useState(currentSubKey)
-  const [tags, setTags] = useState(currentTags || getCategoryByKey(currentCatKey).defaultTags || [])
+  const [tags, setTags] = useState(currentTags || getDefaultTags(currentCatKey, currentSubKey))
   const [name, setName] = useState(txName || '')
   const [amount, setAmount] = useState(currentAmount == null ? '' : String(currentAmount))
   const [taxonomyEditor, setTaxonomyEditor] = useState(null)
@@ -77,7 +79,7 @@ function EditModal({ txName, currentAmount, count, mergeMemory, currentCatKey, c
   const isBatch = count > 1
   const parsedAmount = Number.parseFloat(amount)
   const canSave = isBatch || (name.trim() && Number.isFinite(parsedAmount) && parsedAmount > 0)
-  const toggleTag = k => setTags(p => p.includes(k) ? p.filter(t => t !== k) : [...p, k])
+  const toggleTag = k => setTags(previous => toggleExclusiveTag(previous, k))
   const openTaxonomyEditor = (type, mode, item = null) => {
     setTaxonomyEditor({ type, mode, key: item?.key, initialValue: item?.label || '' })
   }
@@ -214,7 +216,12 @@ function EditModal({ txName, currentAmount, count, mergeMemory, currentCatKey, c
               <div data-testid="primary-category-grid" className="grid grid-cols-2 min-[580px]:grid-cols-5 gap-2 min-[580px]:gap-1.5 lg:gap-3 mb-5">
               {CATEGORIES.map(c => (
                 <div key={c.key} className="relative group min-w-0">
-                  <button onClick={() => { setCatKey(c.key); setSubKey(c.subs[0]?.key || ''); setTags(c.defaultTags || []) }}
+                  <button onClick={() => {
+                    const nextSubKey = c.subs[0]?.key || ''
+                    setCatKey(c.key)
+                    setSubKey(nextSubKey)
+                    setTags(getDefaultTags(c.key, nextSubKey))
+                  }}
                     aria-pressed={catKey === c.key}
                     className={`w-full min-h-16 flex flex-col items-center justify-center gap-1.5 px-1.5 py-2.5 rounded-xl border transition-colors
                       ${catKey === c.key ? 'border-brand bg-brand-faint shadow-sm' : 'border-gray-200 dark:border-gray-700 hover:border-brand/40 hover:bg-gray-50 dark:hover:bg-gray-800'}`}>
@@ -236,7 +243,7 @@ function EditModal({ txName, currentAmount, count, mergeMemory, currentCatKey, c
               <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-2">
               {cat.subs.filter(s => s.label).map(s => (
                 <div key={s.key} className="relative min-w-0">
-                  <button onClick={() => setSubKey(s.key)} aria-pressed={subKey === s.key}
+                  <button onClick={() => { setSubKey(s.key); setTags(getDefaultTags(catKey, s.key)) }} aria-pressed={subKey === s.key}
                     className={`w-full min-h-10 text-sm pl-3 pr-8 py-2 rounded-xl border truncate ${subKey === s.key ? 'border-brand bg-brand-faint text-brand font-semibold' : 'border-gray-200 dark:border-gray-700 text-ink-secondary dark:text-gray-300 hover:border-brand/40'}`}>
                     {s.label}
                   </button>

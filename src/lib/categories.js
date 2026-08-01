@@ -44,10 +44,10 @@ export const CATEGORIES = [
     key: 'food', label: '餐饮消费', icon: 'food',
     color: '#ef9f27', bg: '#faeeda', defaultTags: ['rigid','elastic','emotion','social'],
     subs: [
-      { key: 'work_meal', label: '工作餐', keywords: ['食堂','工作餐','午餐','便当'] },
+      { key: 'work_meal', label: '工作餐', keywords: ['食堂','工作餐','午餐','便当'], defaultTags: ['rigid'] },
       { key: 'breakfast', label: '早餐', keywords: ['早餐','包子','豆浆','煎饼'] },
-      { key: 'takeout', label: '外卖', keywords: ['美团','饿了么','外卖','堂食','点餐','麦当劳','肯德基','必胜客','快餐','面馆','饭店','餐厅','小吃','烧烤','火锅','盖饭','米线','拉面','沙县','兰州','饺子','黄焖'] },
-      { key: 'coffee', label: '咖啡奶茶', keywords: ['瑞幸','luckin','Luckin','星巴克','starbucks','Starbucks','喜茶','奈雪','蜜雪','茶百道','COCO','咖啡','奶茶','Manner','Tims','一点点','甜品','蛋糕','冰淇淋','coffee'] },
+      { key: 'takeout', label: '外卖', keywords: ['美团','饿了么','外卖','堂食','点餐','麦当劳','肯德基','必胜客','快餐','面馆','饭店','餐厅','小吃','烧烤','火锅','盖饭','米线','拉面','沙县','兰州','饺子','黄焖'], defaultTags: ['rigid'] },
+      { key: 'coffee', label: '咖啡奶茶', keywords: ['瑞幸','luckin','星巴克','starbucks','喜茶','奈雪','蜜雪','茶百道','coco','咖啡','奶茶','manner','tims','一点点','甜品','蛋糕','冰淇淋','coffee','饮品','饮料','果汁','苏打水','气泡水','柠檬茶'], defaultTags: ['elastic'] },
       { key: 'gathering', label: '聚餐', keywords: ['聚餐','宴请','酒席'] },
       { key: 'late_snack', label: '夜宵', keywords: ['夜宵','大排档'] },
     ]
@@ -205,6 +205,34 @@ export const CATEGORIES = [
 
 const TAXONOMY_STORAGE_KEY = 'budget-app-taxonomy-v1'
 
+export const MUTUALLY_EXCLUSIVE_TAG_GROUPS = [
+  ['rigid', 'elastic'],
+]
+
+const BUILT_IN_SUBCATEGORY_TAGS = {
+  work_meal: ['rigid'],
+  takeout: ['rigid'],
+  coffee: ['elastic'],
+}
+
+export function normalizeExclusiveTags(tags = [], preferredTag = null) {
+  let normalized = [...new Set(tags.filter(Boolean))]
+  for (const group of MUTUALLY_EXCLUSIVE_TAG_GROUPS) {
+    const selected = normalized.filter(tag => group.includes(tag))
+    if (selected.length <= 1) continue
+    const keep = preferredTag && selected.includes(preferredTag) ? preferredTag : selected[0]
+    normalized = normalized.filter(tag => !group.includes(tag) || tag === keep)
+  }
+  return normalized
+}
+
+export function toggleExclusiveTag(tags = [], tag) {
+  if (tags.includes(tag)) return tags.filter(item => item !== tag)
+  const group = MUTUALLY_EXCLUSIVE_TAG_GROUPS.find(items => items.includes(tag))
+  const withoutConflicts = group ? tags.filter(item => !group.includes(item)) : tags
+  return [...withoutConflicts, tag]
+}
+
 function hydrateTaxonomy() {
   if (typeof window === 'undefined') return
   try {
@@ -220,12 +248,22 @@ function hydrateTaxonomy() {
   }
 }
 
+function applyBuiltInSubcategoryTagRules() {
+  for (const category of CATEGORIES) {
+    for (const subcategory of category.subs || []) {
+      const defaultTags = BUILT_IN_SUBCATEGORY_TAGS[subcategory.key]
+      if (defaultTags) subcategory.defaultTags = [...defaultTags]
+    }
+  }
+}
+
 function persistTaxonomy() {
   if (typeof window === 'undefined') return
   window.localStorage.setItem(TAXONOMY_STORAGE_KEY, JSON.stringify({ categories: CATEGORIES, tags: ALL_TAGS }))
 }
 
 hydrateTaxonomy()
+applyBuiltInSubcategoryTagRules()
 
 export const CAT_MAP = {}
 export const SUB_MAP = {}
@@ -321,7 +359,16 @@ export function getCategoryByKey(key) { return CAT_MAP[key] || CAT_MAP['other'] 
 export function getDefaultTags(catKey, subKey) {
   const cat = getCategoryByKey(catKey)
   const sub = cat.subs?.find(item => item.key === subKey)
-  return sub?.defaultTags || cat.defaultTags || []
+  return normalizeExclusiveTags(sub?.defaultTags || cat.defaultTags || [])
+}
+
+export function getPreferredNatureTag(catKey, subKey, name = '') {
+  if (catKey !== 'food') return null
+  const normalizedName = String(name).normalize('NFKC').toLowerCase()
+  const coffee = getCategoryByKey('food').subs?.find(item => item.key === 'coffee')
+  if (subKey === 'coffee' || coffee?.keywords?.some(keyword => normalizedName.includes(keyword.toLowerCase()))) return 'elastic'
+  if (subKey === 'work_meal' || subKey === 'takeout') return 'rigid'
+  return null
 }
 export const DIMENSION_LABELS = {
   rigid:'刚需固定', elastic:'弹性消费', growth:'提升投资', social:'人情流转',

@@ -9,6 +9,9 @@ import {
   addTag,
   renameTag,
   getCategoryByKey,
+  getDefaultTags,
+  normalizeExclusiveTags,
+  toggleExclusiveTag,
 } from '../src/lib/categories.js'
 
 test('adds and renames user-defined categories and subcategories', () => {
@@ -31,4 +34,16 @@ test('adds and renames user-defined spending traits', () => {
 
   renameTag(tag.key, '测试性质已修改')
   assert.equal(TAG_MAP[tag.key].label, '测试性质已修改')
+})
+
+test('uses mutually exclusive food nature defaults', () => {
+  assert.deepEqual(getDefaultTags('food', 'work_meal'), ['rigid'])
+  assert.deepEqual(getDefaultTags('food', 'takeout'), ['rigid'])
+  assert.deepEqual(getDefaultTags('food', 'coffee'), ['elastic'])
+})
+
+test('never keeps rigid and elastic selected together', () => {
+  assert.deepEqual(normalizeExclusiveTags(['rigid', 'elastic', 'emotion'], 'elastic'), ['elastic', 'emotion'])
+  assert.deepEqual(toggleExclusiveTag(['rigid', 'emotion'], 'elastic'), ['emotion', 'elastic'])
+  assert.deepEqual(toggleExclusiveTag(['elastic', 'emotion'], 'rigid'), ['emotion', 'rigid'])
 })
