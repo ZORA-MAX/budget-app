@@ -60,6 +60,14 @@ export function resolveClassification(tx, override, memory = {}) {
     }
   }
 
+  if (tx?.mergeMemory?.classification) {
+    return {
+      ...tx.mergeMemory.classification,
+      source: 'merge-memory',
+      ruleId: tx.mergeMemory.ruleId,
+    }
+  }
+
   const policy = matchPersonalPolicy(tx)
   if (policy) {
     return {

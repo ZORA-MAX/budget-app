@@ -1,6 +1,7 @@
 import { useState, useCallback, useMemo, useEffect } from 'react'
 import Dashboard from '../components/Dashboard'
 import { parseCSV, parseExcel, groupByMonth, txKey } from '../lib/csv-parser'
+import { applyTransactionMergeMemory, DEFAULT_TRANSACTION_MERGE_MEMORIES } from '../lib/transaction-merge-memory'
 import {
   importClassificationMemory,
   loadClassificationMemory,
@@ -8,6 +9,38 @@ import {
   saveMonth,
   saveOverrides,
 } from '../lib/storage'
+
+const BILL_FILE_PATTERN = /\.(csv|xlsx?)$/i
+
+function readTextFile(file, encoding) {
+  return new Promise(resolve => {
+    const reader = new FileReader()
+    reader.onload = event => resolve(event.target.result)
+    reader.onerror = () => resolve('')
+    reader.readAsText(file, encoding)
+  })
+}
+
+async function parseBillFile(file) {
+  if (!BILL_FILE_PATTERN.test(file.name)) {
+    throw new Error('仅支持 CSV、XLS 和 XLSX 格式')
+  }
+
+  if (/\.xlsx?$/i.test(file.name)) {
+    return parseExcel(await file.arrayBuffer())
+  }
+
+  const tryParse = async encoding => {
+    try {
+      return parseCSV(await readTextFile(file, encoding))
+    } catch {
+      return []
+    }
+  }
+  let txs = await tryParse('utf-8')
+  if (txs.length === 0) txs = await tryParse('gbk')
+  return txs
+}
 
 export default function Home({ onDataSaved }) {
   const [files, setFiles] = useState([])
@@ -19,44 +52,45 @@ export default function Home({ onDataSaved }) {
   const [manualTxs, setManualTxs] = useState([])
   const [classificationMemory, setClassificationMemory] = useState({})
   const [memoryNotice, setMemoryNotice] = useState('')
+  const [importingCount, setImportingCount] = useState(0)
 
   useEffect(() => {
     loadClassificationMemory().then(setClassificationMemory).catch(console.error)
   }, [])
 
-  const handleFile = useCallback((file) => {
-    setError('')
-    const isExcel = /\.xlsx?$/i.test(file.name)
-    if (isExcel) {
-      const reader = new FileReader()
-      reader.onload = e => {
-        try {
-          const txs = parseExcel(e.target.result)
-          if (txs.length === 0) { setError(`无法解析 "${file.name}"。`); return }
-          addFileData(file.name, txs)
-        } catch (err) { setError('Excel 解析出错：' + err.message) }
-      }
-      reader.readAsArrayBuffer(file)
-    } else {
-      const tryParse = enc => new Promise(resolve => {
-        const reader = new FileReader()
-        reader.onload = e => { try { resolve(parseCSV(e.target.result)) } catch { resolve([]) } }
-        reader.onerror = () => resolve([])
-        reader.readAsText(file, enc)
-      })
-      tryParse('utf-8').then(txs => txs.length > 0 ? txs : tryParse('gbk')).then(txs => {
-        if (txs.length === 0) { setError(`无法解析 "${file.name}"。支持 CSV 和 Excel 格式。`); return }
-        addFileData(file.name, txs)
-      })
-    }
-  }, [])
+  const handleFiles = useCallback(async selectedFiles => {
+    const batch = Array.from(selectedFiles || [])
+    if (batch.length === 0) return
 
-  const addFileData = (filename, txs) => {
-    const source = txs[0]?.source || 'cashbook'
-    const sourceLabel = source === 'wechat' ? '微信' : source === 'alipay' ? '支付宝' : '记账本'
-    setFiles(prev => [...prev.filter(f => f.source !== source), { key: Date.now(), filename, txs, source, sourceLabel }])
+    setError('')
+    setImportingCount(batch.length)
     setAnalyzed(false)
-  }
+
+    const results = await Promise.allSettled(batch.map(async file => {
+      const txs = await parseBillFile(file)
+      if (txs.length === 0) throw new Error('没有识别到支出记录')
+      const source = txs[0]?.source || 'cashbook'
+      const sourceLabel = source === 'wechat' ? '微信' : source === 'alipay' ? '支付宝' : '记账本'
+      return {
+        key: `${file.name}-${file.size}-${file.lastModified}-${crypto.randomUUID()}`,
+        filename: file.name,
+        txs,
+        source,
+        sourceLabel,
+      }
+    }))
+
+    const imported = []
+    const failed = []
+    results.forEach((result, index) => {
+      if (result.status === 'fulfilled') imported.push(result.value)
+      else failed.push(`${batch[index].name}：${result.reason?.message || '解析失败'}`)
+    })
+
+    if (imported.length > 0) setFiles(prev => [...prev, ...imported])
+    if (failed.length > 0) setError(`有 ${failed.length} 个文件未导入：${failed.join('；')}`)
+    setImportingCount(0)
+  }, [])
 
   const handleMemoryFile = useCallback(async file => {
     setError('')
@@ -73,13 +107,14 @@ export default function Home({ onDataSaved }) {
   }, [])
 
   const allTxs = useMemo(() => {
-    const imported = files.flatMap(f => f.txs)
-    const all = [...imported, ...manualTxs].filter(tx => !deletedKeys.has(txKey(tx)))
-    all.sort((x, y) => y.date - x.date)
-    return all
+    const uniqueImported = [...new Map(
+      files.flatMap(file => file.txs).map(tx => [txKey(tx), tx])
+    ).values()]
+    const merged = applyTransactionMergeMemory([...uniqueImported, ...manualTxs])
+    return merged.filter(tx => !deletedKeys.has(txKey(tx)))
   }, [files, manualTxs, deletedKeys])
 
-  const removeFile = source => { setFiles(prev => prev.filter(f => f.source !== source)); setAnalyzed(false) }
+  const removeFile = key => { setFiles(prev => prev.filter(f => f.key !== key)); setAnalyzed(false) }
 
   // Override: save immediately
   const handleOverride = useCallback((key, classification, txForMemory) => {
@@ -138,7 +173,7 @@ export default function Home({ onDataSaved }) {
         {saving && <div className="text-xs text-ink-secondary mb-3">正在保存...</div>}
         <div className="flex gap-2 flex-wrap mb-4">
           {files.map(f => (
-            <span key={f.source} className={`text-xs px-2.5 py-1 rounded-full ${
+            <span key={f.key} className={`text-xs px-2.5 py-1 rounded-full ${
               f.source === 'wechat' ? 'bg-green-50 text-green-600' : f.source === 'alipay' ? 'bg-blue-50 text-blue-600' : 'bg-purple-50 text-purple-600'}`}>
               {f.source === 'wechat' ? '💬' : f.source === 'alipay' ? '🔵' : '📒'} {f.sourceLabel} {f.txs.length}笔
             </span>
@@ -164,8 +199,20 @@ export default function Home({ onDataSaved }) {
     <div>
       {error && <div className="bg-red-50 dark:bg-red-950/30 text-red-600 rounded-xl p-3 text-sm mb-3">{error}</div>}
       {memoryNotice && <div className="text-xs text-purple-600 bg-purple-50 rounded-lg px-3 py-2 mb-3">{memoryNotice}</div>}
+      {files.length > 0 && (
+        <div className="flex items-center justify-between rounded-xl bg-brand-faint px-4 py-3 mb-2">
+          <div>
+            <div className="text-sm font-medium text-brand">已选择 {files.length} 个账单文件</div>
+            <div className="text-xs text-ink-secondary mt-0.5">共识别 {files.reduce((sum, file) => sum + file.txs.length, 0)} 笔支出记录</div>
+          </div>
+          <button type="button" onClick={() => { setFiles([]); setAnalyzed(false) }}
+            className="text-xs text-ink-secondary hover:text-red-500 transition-colors">
+            清空全部
+          </button>
+        </div>
+      )}
       {files.map(f => (
-        <div key={f.source} className="flex items-center justify-between bg-green-50 dark:bg-green-950/30 rounded-xl px-4 py-3 mb-2">
+        <div key={f.key} className="flex items-center justify-between bg-green-50 dark:bg-green-950/30 rounded-xl px-4 py-3 mb-2">
           <div className="flex items-center gap-3">
             <span className="text-xl">{f.source === 'wechat' ? '💬' : f.source === 'alipay' ? '🔵' : '📒'}</span>
             <div>
@@ -173,7 +220,7 @@ export default function Home({ onDataSaved }) {
               <div className="text-xs text-ink-secondary">{f.sourceLabel} · {f.txs.length} 笔</div>
             </div>
           </div>
-          <button onClick={() => removeFile(f.source)} className="text-ink-tertiary hover:text-red-500 px-2 py-1 rounded-md text-sm">✕</button>
+          <button type="button" aria-label={`移除 ${f.filename}`} onClick={() => removeFile(f.key)} className="text-ink-tertiary hover:text-red-500 px-2 py-1 rounded-md text-sm">✕</button>
         </div>
       ))}
 
@@ -182,10 +229,10 @@ export default function Home({ onDataSaved }) {
         onClick={() => document.getElementById('file-input').click()}
         onDragOver={e => { e.preventDefault(); e.currentTarget.classList.add('border-brand','bg-brand-faint') }}
         onDragLeave={e => e.currentTarget.classList.remove('border-brand','bg-brand-faint')}
-        onDrop={e => { e.preventDefault(); e.currentTarget.classList.remove('border-brand','bg-brand-faint'); Array.from(e.dataTransfer.files).forEach(f => handleFile(f)) }}>
+        onDrop={e => { e.preventDefault(); e.currentTarget.classList.remove('border-brand','bg-brand-faint'); handleFiles(e.dataTransfer.files) }}>
         <div className="text-2xl mb-2">📂</div>
-        <div className="text-sm font-medium text-ink dark:text-white">导入账单文件</div>
-        <div className="text-xs text-ink-secondary mt-1">支持 CSV 和 Excel，可同时选择多个文件</div>
+        <div className="text-sm font-medium text-ink dark:text-white">{importingCount > 0 ? `正在导入 ${importingCount} 个文件…` : '批量导入账单文件'}</div>
+        <div className="text-xs text-ink-secondary mt-1">一次可多选多个 CSV、XLS 或 XLSX 文件，也支持批量拖入</div>
         <div className="flex justify-center gap-2 mt-3">
           <span className="text-xs px-2 py-0.5 rounded-full bg-green-50 text-green-600">💬 微信</span>
           <span className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-600">🔵 支付宝</span>
@@ -193,7 +240,19 @@ export default function Home({ onDataSaved }) {
           <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">📊 Excel</span>
         </div>
         <input id="file-input" type="file" accept=".csv,.xlsx,.xls" multiple className="hidden"
-          onChange={e => { Array.from(e.target.files).forEach(f => handleFile(f)); e.target.value = '' }} />
+          onChange={e => { handleFiles(e.target.files); e.target.value = '' }} />
+      </div>
+
+      <div className="rounded-xl border border-purple-100 bg-purple-50/70 px-4 py-3 mb-2">
+        <div className="flex items-start gap-2.5">
+          <span className="mt-0.5" aria-hidden="true">🧠</span>
+          <div>
+            <div className="text-sm font-medium text-purple-700">合并记忆已启用</div>
+            <div className="text-xs text-purple-600/80 mt-1 leading-relaxed">
+              {DEFAULT_TRANSACTION_MERGE_MEMORIES[0].description}会按月自动合并为“交通”，详情保留每一笔日期与金额。
+            </div>
+          </div>
+        </div>
       </div>
 
       <button onClick={() => document.getElementById('memory-input').click()}
@@ -204,8 +263,9 @@ export default function Home({ onDataSaved }) {
         onChange={e => { if (e.target.files[0]) handleMemoryFile(e.target.files[0]); e.target.value = '' }} />
 
       {files.length > 0 ? (
-        <button onClick={handleAnalyze} className="w-full mt-4 py-3 bg-brand text-white rounded-xl text-sm font-medium hover:bg-brand-light transition-colors">
-          生成分析报告 →
+        <button onClick={handleAnalyze} disabled={importingCount > 0}
+          className="w-full mt-4 py-3 bg-brand text-white rounded-xl text-sm font-medium hover:bg-brand-light transition-colors disabled:opacity-50 disabled:cursor-wait">
+          {importingCount > 0 ? '正在读取文件…' : `生成分析报告（${files.length} 个文件）→`}
         </button>
       ) : (
         <div className="bg-white dark:bg-surface-card-dark rounded-xl p-4 mt-4">

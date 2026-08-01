@@ -65,7 +65,7 @@ function TaxonomyEditor({ editor, onSubmit, onClose }) {
 }
 
 /* ═══ Edit Modal (desktop: all fields visible in three columns) ═══ */
-function EditModal({ txName, currentAmount, count, currentCatKey, currentSubKey, currentTags, onSave, onDelete, onClose }) {
+function EditModal({ txName, currentAmount, count, mergeMemory, currentCatKey, currentSubKey, currentTags, onSave, onDelete, onClose }) {
   const [catKey, setCatKey] = useState(currentCatKey)
   const [subKey, setSubKey] = useState(currentSubKey)
   const [tags, setTags] = useState(currentTags || getCategoryByKey(currentCatKey).defaultTags || [])
@@ -171,6 +171,23 @@ function EditModal({ txName, currentAmount, count, currentCatKey, currentSubKey,
                         className="w-full rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 pl-8 pr-3.5 py-3 text-xl font-semibold tabular-nums text-ink dark:text-white outline-none focus:border-brand focus:ring-2 focus:ring-brand/10" />
                     </div>
                   </label>
+                  {mergeMemory?.details?.length > 0 && (
+                    <div className="rounded-xl border border-purple-100 bg-purple-50/70 p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-semibold text-purple-700">🧠 自动合并明细</span>
+                        <span className="text-[11px] text-purple-500">共 {mergeMemory.count} 笔</span>
+                      </div>
+                      <p className="text-[11px] text-purple-600/80 mt-1">{mergeMemory.label}</p>
+                      <div className="mt-2 max-h-40 overflow-y-auto divide-y divide-purple-100">
+                        {mergeMemory.details.map((detail, index) => (
+                          <div key={`${detail.date}-${detail.amount}-${index}`} className="flex items-center justify-between gap-3 py-1.5 text-xs">
+                            <span className="text-ink-secondary">{detail.date}</span>
+                            <span className="font-medium tabular-nums text-ink">{fmtMoney(detail.amount)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   {!canSave && <p className="text-xs text-red-500">请填写消费名称，并输入大于 0 的金额。</p>}
                 </div>
               )}
@@ -484,7 +501,13 @@ export default function TransactionList({ transactions, overrides, memory = {}, 
                       {tx.tags?.slice(0,2).map(t => { const tag = TAG_MAP[t]; return tag ? <span key={t} className="text-[9px] px-1 py-0.5 rounded" style={{ backgroundColor: tag.bg, color: tag.color }}>{tag.label}</span> : null })}
                       {tx.isOverridden && <span className="text-[9px] px-1 py-0.5 rounded bg-amber-50 text-amber-600">手动</span>}
                       {!tx.isOverridden && tx.classificationSource === 'memory' && <span className="text-[9px] px-1 py-0.5 rounded bg-purple-50 text-purple-600">记忆</span>}
+                      {tx.mergeMemory && <span className="text-[9px] px-1 py-0.5 rounded bg-purple-50 text-purple-600">🧠 合并 {tx.mergeMemory.count} 笔</span>}
                     </div>
+                    {tx.mergeMemory?.details?.length > 0 && (
+                      <div className="text-[10px] text-ink-tertiary mt-1 truncate">
+                        明细：{tx.mergeMemory.details.map(detail => `${detail.date.slice(5)} ${fmtMoney(detail.amount)}`).join(' · ')}
+                      </div>
+                    )}
                   </div>
                   <span className="text-[13px] font-medium text-red-500 flex-shrink-0">-{fmtMoney(tx.amount)}</span>
                 </button>
@@ -498,7 +521,7 @@ export default function TransactionList({ transactions, overrides, memory = {}, 
 
       {/* Modals */}
       {editingTx && !batchEdit && (
-        <EditModal txName={editingTx.name} currentAmount={editingTx.amount} count={1} currentCatKey={editingTx.catKey} currentSubKey={editingTx.subKey}
+        <EditModal txName={editingTx.name} currentAmount={editingTx.amount} count={1} mergeMemory={editingTx.mergeMemory} currentCatKey={editingTx.catKey} currentSubKey={editingTx.subKey}
           currentTags={editingTx.tags} onSave={handleSaveSingle} onDelete={handleDeleteSingle} onClose={() => setEditingIdx(null)} />
       )}
       {batchEdit && (
