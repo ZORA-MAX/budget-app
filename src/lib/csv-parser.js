@@ -123,7 +123,11 @@ export function groupByMonth(txs) {
 }
 
 export function fmtMoney(n) {
-  return '¥' + Math.round(n).toLocaleString('zh-CN')
+  const amount = Number(n) || 0
+  return '¥' + amount.toLocaleString('zh-CN', {
+    minimumFractionDigits: Number.isInteger(amount) ? 0 : 2,
+    maximumFractionDigits: 2,
+  })
 }
 
 export function txKey(tx) {

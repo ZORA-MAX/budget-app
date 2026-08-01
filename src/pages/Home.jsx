@@ -246,10 +246,17 @@ export default function Home({ onDataSaved }) {
       <div className="rounded-xl border border-purple-100 bg-purple-50/70 px-4 py-3 mb-2">
         <div className="flex items-start gap-2.5">
           <span className="mt-0.5" aria-hidden="true">🧠</span>
-          <div>
+          <div className="min-w-0 flex-1">
             <div className="text-sm font-medium text-purple-700">合并记忆已启用</div>
-            <div className="text-xs text-purple-600/80 mt-1 leading-relaxed">
-              {DEFAULT_TRANSACTION_MERGE_MEMORIES[0].description}会按月自动合并为“交通”，详情保留每一笔日期与金额。
+            <div className="mt-2 space-y-2">
+              {DEFAULT_TRANSACTION_MERGE_MEMORIES.map(rule => (
+                <div key={rule.id} className="rounded-lg bg-white/70 border border-purple-100 px-3 py-2">
+                  <div className="text-xs font-medium text-purple-700">{rule.label} → {rule.canonicalName}</div>
+                  <div className="text-[11px] text-purple-600/75 mt-0.5 leading-relaxed">
+                    {rule.description}，按月自动合并，详情保留每一笔日期与金额。
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         </div>

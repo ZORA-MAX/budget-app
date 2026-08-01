@@ -181,7 +181,10 @@ function EditModal({ txName, currentAmount, count, mergeMemory, currentCatKey, c
                       <div className="mt-2 max-h-40 overflow-y-auto divide-y divide-purple-100">
                         {mergeMemory.details.map((detail, index) => (
                           <div key={`${detail.date}-${detail.amount}-${index}`} className="flex items-center justify-between gap-3 py-1.5 text-xs">
-                            <span className="text-ink-secondary">{detail.date}</span>
+                            <div className="min-w-0">
+                              <div className="text-ink-secondary">{detail.date}</div>
+                              <div className="text-[10px] text-ink-tertiary truncate mt-0.5" title={detail.name}>{detail.name}</div>
+                            </div>
                             <span className="font-medium tabular-nums text-ink">{fmtMoney(detail.amount)}</span>
                           </div>
                         ))}

@@ -14,6 +14,40 @@ export const DEFAULT_TRANSACTION_MERGE_MEMORIES = [
       tags: ['rigid', 'fixed', 'efficiency'],
     },
   },
+  {
+    id: 'meituan-bike-pay-later',
+    label: '美团共享单车先骑后付',
+    groupId: 'shared-bike-travel',
+    groupLabel: '共享单车出行',
+    canonicalName: '交通',
+    description: '名称同时包含“美团”和“先骑后付”的交易（金额不限）',
+    matches: name => {
+      const text = String(name || '').normalize('NFKC').replace(/\s+/g, '').toLowerCase()
+      return text.includes('美团') && text.includes('先骑后付')
+    },
+    classification: {
+      catKey: 'transport',
+      subKey: 'bike',
+      tags: ['rigid', 'fixed', 'efficiency'],
+    },
+  },
+  {
+    id: 'hello-bike-rides',
+    label: '哈啰骑行',
+    groupId: 'shared-bike-travel',
+    groupLabel: '共享单车出行',
+    canonicalName: '交通',
+    description: '名称包含“哈啰”，并带有“骑行”“单车”或“助力车”的交易（金额不限）',
+    matches: name => {
+      const text = String(name || '').normalize('NFKC').replace(/\s+/g, '').toLowerCase()
+      return text.includes('哈啰') && ['骑行', '单车', '助力车'].some(keyword => text.includes(keyword))
+    },
+    classification: {
+      catKey: 'transport',
+      subKey: 'bike',
+      tags: ['rigid', 'fixed', 'efficiency'],
+    },
+  },
 ]
 
 function monthKey(date) {
@@ -52,7 +86,7 @@ export function applyTransactionMergeMemory(transactions, rules = DEFAULT_TRANSA
       continue
     }
 
-    const key = `${rule.id}|${monthKey(tx.date)}`
+    const key = `${rule.groupId || rule.id}|${monthKey(tx.date)}`
     const existing = buckets.get(key) || { rule, transactions: [] }
     existing.transactions.push(tx)
     buckets.set(key, existing)
@@ -74,7 +108,7 @@ export function applyTransactionMergeMemory(transactions, rules = DEFAULT_TRANSA
       originalCategory: '交通',
       mergeMemory: {
         ruleId: rule.id,
-        label: rule.label,
+        label: rule.groupLabel || rule.label,
         description: rule.description,
         count: details.length,
         details,
