@@ -44,10 +44,10 @@ export const CATEGORIES = [
     key: 'food', label: '餐饮消费', icon: 'food',
     color: '#ef9f27', bg: '#faeeda', defaultTags: ['rigid','elastic','emotion','social'],
     subs: [
-      { key: 'work_meal', label: '工作餐', keywords: ['食堂','工作餐','午餐','便当'] },
+      { key: 'work_meal', label: '工作餐', keywords: ['食堂','工作餐','午餐','便当'], defaultTags: ['rigid'] },
       { key: 'breakfast', label: '早餐', keywords: ['早餐','包子','豆浆','煎饼'] },
-      { key: 'takeout', label: '外卖', keywords: ['美团','饿了么','外卖','堂食','点餐','麦当劳','肯德基','必胜客','快餐','面馆','饭店','餐厅','小吃','烧烤','火锅','盖饭','米线','拉面','沙县','兰州','饺子','黄焖'] },
-      { key: 'coffee', label: '咖啡奶茶', keywords: ['瑞幸','luckin','Luckin','星巴克','starbucks','Starbucks','喜茶','奈雪','蜜雪','茶百道','COCO','咖啡','奶茶','Manner','Tims','一点点','甜品','蛋糕','冰淇淋','coffee'] },
+      { key: 'takeout', label: '外卖', keywords: ['美团','饿了么','外卖','堂食','点餐','麦当劳','肯德基','必胜客','快餐','面馆','饭店','餐厅','小吃','烧烤','火锅','盖饭','米线','拉面','沙县','兰州','饺子','黄焖'], defaultTags: ['rigid'] },
+      { key: 'coffee', label: '咖啡奶茶', keywords: ['瑞幸','luckin','星巴克','starbucks','喜茶','奈雪','蜜雪','茶百道','coco','咖啡','奶茶','manner','tims','一点点','甜品','蛋糕','冰淇淋','coffee','饮品','饮料','果汁','苏打水','气泡水','柠檬茶'], defaultTags: ['elastic'] },
       { key: 'gathering', label: '聚餐', keywords: ['聚餐','宴请','酒席'] },
       { key: 'late_snack', label: '夜宵', keywords: ['夜宵','大排档'] },
     ]
@@ -70,6 +70,7 @@ export const CATEGORIES = [
       { key: 'cleaning', label: '清洁用品', keywords: ['清洁','洗衣液','洗洁精','垃圾袋','拖把'] },
       { key: 'personal', label: '洗护个护', keywords: ['洗护','沐浴','牙膏','洗面奶','洗发水'] },
       { key: 'paper', label: '纸品', keywords: ['纸巾','抽纸','卷纸','湿巾'] },
+      { key: 'online_grocery', label: '网络超市', keywords: ['七鲜','盒马','叮咚','朴朴','网络超市'] },
       { key: 'misc_daily', label: '生活小物', keywords: ['日用','便利店','711','全家','罗森','超市','物美','华润','永辉','大润发','沃尔玛','盒马','叮咚','朴朴','拼多多','淘宝','京东','天猫','唯品会','平台商户','先用后付','闲鱼','小红书','抖音','得物','快递','物流','速递','到付','寄件'] },
       { key: 'pet', label: '宠物用品', keywords: ['宠物','猫粮','狗粮','猫砂','宠物医院'] },
     ]
@@ -84,6 +85,7 @@ export const CATEGORIES = [
       { key: 'haircut', label: '理发', keywords: ['理发','美发','剪发'] },
       { key: 'nails', label: '美甲', keywords: ['美甲','美睫'] },
       { key: 'accessories', label: '配饰', keywords: ['饰品','首饰','手表','眼镜','配饰'] },
+      { key: 'camera', label: '相机租赁', keywords: ['相机租','ccd','gr3x','佳能g12'] },
     ]
   },
   {
@@ -183,10 +185,10 @@ export const CATEGORIES = [
     color: '#8e8e93', bg: '#f1efe8', defaultTags: ['non_expense','accounting'],
     subs: [
       { key: 'credit_card', label: '信用卡还款', keywords: ['信用卡','还款','花呗'] },
-      { key: 'loan', label: '借还款', keywords: ['借款','还钱','借钱','拆借','转账','发给','收款'] },
+      { key: 'loan', label: '借还款', keywords: ['借款','还钱','借钱','拆借','转账'] },
       { key: 'aa', label: 'AA', keywords: ['AA','均摊'] },
       { key: 'reimburse', label: '报销', keywords: ['报销'] },
-      { key: 'deposit_ref', label: '押金退还', keywords: ['退还','退款','退押金','deposit','发给','收款'] },
+      { key: 'deposit_ref', label: '押金退还', keywords: ['退还','退款','退押金','deposit'] },
     ]
   },
   {
@@ -201,13 +203,211 @@ export const CATEGORIES = [
   },
 ]
 
+const TAXONOMY_STORAGE_KEY = 'budget-app-taxonomy-v1'
+
+export const MUTUALLY_EXCLUSIVE_TAG_GROUPS = [
+  ['rigid', 'elastic'],
+]
+
+const BUILT_IN_SUBCATEGORY_TAGS = {
+  work_meal: ['rigid'],
+  takeout: ['rigid'],
+  coffee: ['elastic'],
+}
+
+export function normalizeExclusiveTags(tags = [], preferredTag = null) {
+  let normalized = [...new Set(tags.filter(Boolean))]
+  for (const group of MUTUALLY_EXCLUSIVE_TAG_GROUPS) {
+    const selected = normalized.filter(tag => group.includes(tag))
+    if (selected.length <= 1) continue
+    const keep = preferredTag && selected.includes(preferredTag) ? preferredTag : selected[0]
+    normalized = normalized.filter(tag => !group.includes(tag) || tag === keep)
+  }
+  return normalized
+}
+
+export function toggleExclusiveTag(tags = [], tag) {
+  if (tags.includes(tag)) return tags.filter(item => item !== tag)
+  const group = MUTUALLY_EXCLUSIVE_TAG_GROUPS.find(items => items.includes(tag))
+  const withoutConflicts = group ? tags.filter(item => !group.includes(item)) : tags
+  return [...withoutConflicts, tag]
+}
+
+function hydrateTaxonomy() {
+  if (typeof window === 'undefined') return
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(TAXONOMY_STORAGE_KEY) || 'null')
+    if (Array.isArray(saved?.categories) && saved.categories.length > 0) {
+      CATEGORIES.splice(0, CATEGORIES.length, ...saved.categories)
+    }
+    if (Array.isArray(saved?.tags) && saved.tags.length > 0) {
+      ALL_TAGS.splice(0, ALL_TAGS.length, ...saved.tags)
+    }
+  } catch {
+    // Ignore malformed browser data and keep the built-in taxonomy.
+  }
+}
+
+function applyBuiltInSubcategoryTagRules() {
+  for (const category of CATEGORIES) {
+    for (const subcategory of category.subs || []) {
+      const defaultTags = BUILT_IN_SUBCATEGORY_TAGS[subcategory.key]
+      if (defaultTags) subcategory.defaultTags = [...defaultTags]
+    }
+  }
+}
+
+function persistTaxonomy() {
+  if (typeof window === 'undefined') return
+  window.localStorage.setItem(TAXONOMY_STORAGE_KEY, JSON.stringify({ categories: CATEGORIES, tags: ALL_TAGS }))
+}
+
+hydrateTaxonomy()
+applyBuiltInSubcategoryTagRules()
+
 export const CAT_MAP = {}
 export const SUB_MAP = {}
-for (const cat of CATEGORIES) {
-  CAT_MAP[cat.key] = cat
-  for (const sub of cat.subs) SUB_MAP[sub.key] = { ...sub, parentKey: cat.key }
+
+function rebuildTaxonomyMaps() {
+  for (const key of Object.keys(CAT_MAP)) delete CAT_MAP[key]
+  for (const key of Object.keys(SUB_MAP)) delete SUB_MAP[key]
+  for (const key of Object.keys(TAG_MAP)) delete TAG_MAP[key]
+
+  for (const tag of ALL_TAGS) TAG_MAP[tag.key] = tag
+  for (const cat of CATEGORIES) {
+    CAT_MAP[cat.key] = cat
+    for (const sub of cat.subs || []) SUB_MAP[sub.key] = { ...sub, parentKey: cat.key }
+  }
 }
+
+rebuildTaxonomyMaps()
+
+function customKey(prefix) {
+  return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`
+}
+
+export function addCategory(label) {
+  const key = customKey('custom_cat')
+  const sub = { key: customKey('custom_sub'), label: '未分类', keywords: [] }
+  const category = {
+    key,
+    label: label.trim(),
+    icon: 'other',
+    color: '#534ab7',
+    bg: '#eeedfe',
+    defaultTags: [],
+    subs: [sub],
+  }
+  CATEGORIES.push(category)
+  rebuildTaxonomyMaps()
+  persistTaxonomy()
+  return category
+}
+
+export function renameCategory(key, label) {
+  const category = CAT_MAP[key]
+  if (!category) return null
+  category.label = label.trim()
+  rebuildTaxonomyMaps()
+  persistTaxonomy()
+  return category
+}
+
+export function addSubcategory(catKey, label) {
+  const category = CAT_MAP[catKey]
+  if (!category) return null
+  const sub = { key: customKey('custom_sub'), label: label.trim(), keywords: [] }
+  category.subs.push(sub)
+  rebuildTaxonomyMaps()
+  persistTaxonomy()
+  return sub
+}
+
+export function renameSubcategory(catKey, subKey, label) {
+  const category = CAT_MAP[catKey]
+  const sub = category?.subs?.find(item => item.key === subKey)
+  if (!sub) return null
+  sub.label = label.trim()
+  rebuildTaxonomyMaps()
+  persistTaxonomy()
+  return sub
+}
+
+export function addTag(label) {
+  const tag = {
+    key: customKey('custom_tag'),
+    label: label.trim(),
+    color: '#534ab7',
+    bg: '#eeedfe',
+  }
+  ALL_TAGS.push(tag)
+  rebuildTaxonomyMaps()
+  persistTaxonomy()
+  return tag
+}
+
+export function renameTag(key, label) {
+  const tag = TAG_MAP[key]
+  if (!tag) return null
+  tag.label = label.trim()
+  rebuildTaxonomyMaps()
+  persistTaxonomy()
+  return tag
+}
+
 export function getCategoryByKey(key) { return CAT_MAP[key] || CAT_MAP['other'] }
+export function getDefaultTags(catKey, subKey) {
+  const cat = getCategoryByKey(catKey)
+  const sub = cat.subs?.find(item => item.key === subKey)
+  return normalizeExclusiveTags(sub?.defaultTags || cat.defaultTags || [])
+}
+
+export function getPreferredNatureTag(catKey, subKey, name = '') {
+  if (catKey !== 'food') return null
+  const normalizedName = String(name).normalize('NFKC').toLowerCase()
+  const coffee = getCategoryByKey('food').subs?.find(item => item.key === 'coffee')
+  if (subKey === 'coffee' || coffee?.keywords?.some(keyword => normalizedName.includes(keyword.toLowerCase()))) return 'elastic'
+  if (subKey === 'work_meal' || subKey === 'takeout') return 'rigid'
+  return null
+}
+
+export function classificationFromLabels(categoryLabel, subcategoryLabel, tagLabels = '') {
+  const normalizedCategory = String(categoryLabel || '').trim()
+  const normalizedSubcategory = String(subcategoryLabel || '').trim()
+  let category = CATEGORIES.find(item => item.label === normalizedCategory)
+  if (!category && normalizedSubcategory) {
+    category = CATEGORIES.find(item => item.subs?.some(sub => sub.label === normalizedSubcategory))
+  }
+  if (!category) return null
+  const subcategory = category.subs?.find(item => item.label === normalizedSubcategory) || category.subs?.[0]
+  if (!subcategory) return null
+
+  const labels = String(tagLabels || '').split(/[、,，/]/).map(label => label.trim()).filter(Boolean)
+  const tagKeys = labels
+    .map(label => ALL_TAGS.find(tag => tag.label === label)?.key)
+    .filter(Boolean)
+  const tags = normalizeExclusiveTags(tagKeys, getPreferredNatureTag(category.key, subcategory.key))
+  return {
+    catKey: category.key,
+    subKey: subcategory.key,
+    tags: tags.length > 0 ? tags : getDefaultTags(category.key, subcategory.key),
+  }
+}
+
+export function createTaxonomySnapshot() {
+  return JSON.parse(JSON.stringify({ categories: CATEGORIES, tags: ALL_TAGS }))
+}
+
+export function restoreTaxonomySnapshot(snapshot) {
+  if (!Array.isArray(snapshot?.categories) || !Array.isArray(snapshot?.tags) || snapshot.categories.length === 0) {
+    throw new Error('备份中的自定义分类格式不正确')
+  }
+  CATEGORIES.splice(0, CATEGORIES.length, ...snapshot.categories)
+  ALL_TAGS.splice(0, ALL_TAGS.length, ...snapshot.tags)
+  rebuildTaxonomyMaps()
+  persistTaxonomy()
+}
+
 export const DIMENSION_LABELS = {
   rigid:'刚需固定', elastic:'弹性消费', growth:'提升投资', social:'人情流转',
   emotion:'情绪消费', efficiency:'效率支出', fixed:'固定支出', health:'健康',

@@ -1,8 +1,6 @@
-import { useMemo, useState } from 'react'
-import { summarizeByCategory } from '../lib/classifier'
+import { useEffect, useMemo, useState } from 'react'
+import { resolveClassification, summarizeByCategory } from '../lib/classifier'
 import { groupByMonth, fmtMoney, txKey } from '../lib/csv-parser'
-import { classify } from '../lib/classifier'
-import { getCategoryByKey, TAG_MAP } from '../lib/categories'
 import CategoryChart from './CategoryChart'
 import CategoryBreakdown from './CategoryBreakdown'
 import TopTransactions from './TopTransactions'
@@ -12,18 +10,28 @@ import { MiniAIInsight } from './AISummary'
 import TransactionList from './TransactionList'
 import DimensionBar from './DimensionBar'
 
-export default function Dashboard({ transactions, overrides = {}, onOverride, onDelete, onAdd }) {
+export default function Dashboard({ transactions, overrides = {}, memory = {}, onOverride, onDelete, onAdd }) {
   const monthlyMap = useMemo(() => groupByMonth(transactions), [transactions])
   const monthKeys = useMemo(() => Object.keys(monthlyMap).sort().reverse(), [monthlyMap])
   const [selectedMonth, setSelectedMonth] = useState(monthKeys[0] || '')
   const [activeTab, setActiveTab] = useState('overview')
 
+  useEffect(() => {
+    if (!monthKeys.includes(selectedMonth)) setSelectedMonth(monthKeys[0] || '')
+  }, [monthKeys, selectedMonth])
+
   const txs = useMemo(() => monthlyMap[selectedMonth] || [], [monthlyMap, selectedMonth])
-  const byCat = useMemo(() => summarizeByCategory(txs, overrides), [txs, overrides])
-  const total = useMemo(() => txs.reduce((s, t) => s + t.amount, 0), [txs])
+  const byCat = useMemo(() => summarizeByCategory(txs, overrides, memory), [txs, overrides, memory])
+  const total = useMemo(() => txs.reduce((sum, tx) => {
+    const override = overrides[txKey(tx)]
+    return sum + (Number.isFinite(override?.editedAmount) ? override.editedAmount : tx.amount)
+  }, 0), [txs, overrides])
 
   const prevKey = monthKeys[monthKeys.indexOf(selectedMonth) + 1]
-  const prevTotal = prevKey ? (monthlyMap[prevKey] || []).reduce((s, t) => s + t.amount, 0) : 0
+  const prevTotal = prevKey ? (monthlyMap[prevKey] || []).reduce((sum, tx) => {
+    const override = overrides[txKey(tx)]
+    return sum + (Number.isFinite(override?.editedAmount) ? override.editedAmount : tx.amount)
+  }, 0) : 0
   const diff = total - prevTotal
 
   // Per-transaction tag totals
@@ -32,23 +40,30 @@ export default function Dashboard({ transactions, overrides = {}, onOverride, on
     for (const tx of txs) {
       const key = txKey(tx)
       const ov = overrides[key]
-      const { catKey } = ov || classify(tx.name, tx.originalCategory)
-      const tags = ov?.tags || getCategoryByKey(catKey).defaultTags || []
-      const share = tx.amount / (tags.length || 1)
+      const effectiveTx = {
+        ...tx,
+        name: ov?.editedName ?? tx.name,
+        amount: Number.isFinite(ov?.editedAmount) ? ov.editedAmount : tx.amount,
+      }
+      const { tags } = resolveClassification(effectiveTx, ov, memory)
+      const share = effectiveTx.amount / (tags.length || 1)
       for (const t of tags) {
         if (!map[t]) map[t] = 0
         map[t] += share
       }
     }
     return map
-  }, [txs, overrides])
+  }, [txs, overrides, memory])
 
   const monthlyTotals = useMemo(() =>
     monthKeys.slice().reverse().map(k => ({
       label: k.split('-')[1] + '月',
-      total: (monthlyMap[k] || []).reduce((s, t) => s + t.amount, 0)
+      total: (monthlyMap[k] || []).reduce((sum, tx) => {
+        const override = overrides[txKey(tx)]
+        return sum + (Number.isFinite(override?.editedAmount) ? override.editedAmount : tx.amount)
+      }, 0)
     })),
-  [monthKeys, monthlyMap])
+  [monthKeys, monthlyMap, overrides])
 
   if (txs.length === 0) return null
 
@@ -104,11 +119,11 @@ export default function Dashboard({ transactions, overrides = {}, onOverride, on
             <CategoryChart byCat={byCat} />
           </div>
           <CategoryBreakdown byCat={byCat} total={total} />
-          <TopTransactions transactions={txs} overrides={overrides} />
+          <TopTransactions transactions={txs} overrides={overrides} memory={memory} />
           <AISummary byCat={byCat} total={total} diff={diff} prevTotal={prevTotal} month={selectedMonth} />
         </>
       ) : (
-        <TransactionList transactions={txs} overrides={overrides} onOverride={onOverride} onDelete={onDelete} onAdd={onAdd} />
+        <TransactionList transactions={txs} overrides={overrides} memory={memory} onOverride={onOverride} onDelete={onDelete} onAdd={onAdd} defaultMonth={selectedMonth} />
       )}
     </div>
   )
