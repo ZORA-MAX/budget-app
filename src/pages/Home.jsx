@@ -1,6 +1,7 @@
 import { useState, useCallback, useMemo, useEffect } from 'react'
 import Dashboard from '../components/Dashboard'
 import { parseCSV, parseExcel, groupByMonth, txKey } from '../lib/csv-parser'
+import { classificationFromLabels } from '../lib/categories'
 import { applyTransactionMergeMemory, DEFAULT_TRANSACTION_MERGE_MEMORIES } from '../lib/transaction-merge-memory'
 import {
   importClassificationMemory,
@@ -11,6 +12,27 @@ import {
 } from '../lib/storage'
 
 const BILL_FILE_PATTERN = /\.(csv|xlsx?)$/i
+const SOURCE_LABELS = {
+  wechat: '微信',
+  alipay: '支付宝',
+  pdd: '拼多多',
+  bank: '银行卡',
+  cashbook: '记账本',
+}
+
+function localDateString(date) {
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, '0'),
+    String(date.getDate()).padStart(2, '0'),
+  ].join('-')
+}
+
+function scopedOverrides(transactions, overrides) {
+  return Object.fromEntries(transactions
+    .map(tx => [txKey(tx), overrides[txKey(tx)]])
+    .filter(([, override]) => override))
+}
 
 function readTextFile(file, encoding) {
   return new Promise(resolve => {
@@ -70,7 +92,7 @@ export default function Home({ onDataSaved }) {
       const txs = await parseBillFile(file)
       if (txs.length === 0) throw new Error('没有识别到支出记录')
       const source = txs[0]?.source || 'cashbook'
-      const sourceLabel = source === 'wechat' ? '微信' : source === 'alipay' ? '支付宝' : '记账本'
+      const sourceLabel = txs[0]?.sourceLabel || SOURCE_LABELS[source] || '记账本'
       return {
         key: `${file.name}-${file.size}-${file.lastModified}-${crypto.randomUUID()}`,
         filename: file.name,
@@ -87,7 +109,35 @@ export default function Home({ onDataSaved }) {
       else failed.push(`${batch[index].name}：${result.reason?.message || '解析失败'}`)
     })
 
-    if (imported.length > 0) setFiles(prev => [...prev, ...imported])
+    if (imported.length > 0) {
+      const importedOverrides = {}
+      const learnedRows = []
+      for (const tx of imported.flatMap(item => item.txs)) {
+        const labels = tx.importedClassification
+        const classification = classificationFromLabels(labels?.categoryLabel, labels?.subcategoryLabel, labels?.tagLabels)
+        if (!classification) continue
+        importedOverrides[txKey(tx)] = classification
+        learnedRows.push({
+          name: tx.name,
+          date: localDateString(tx.date),
+          edited: true,
+          category: { key: classification.catKey },
+          subcategory: { key: classification.subKey },
+          tags: classification.tags,
+        })
+      }
+      setFiles(prev => [...prev, ...imported])
+      if (Object.keys(importedOverrides).length > 0) {
+        setOverrides(prev => ({ ...importedOverrides, ...prev }))
+        try {
+          const memory = await importClassificationMemory({ transactions: learnedRows })
+          setClassificationMemory(memory)
+          setMemoryNotice(`已读取表内人工分类，并学习 ${learnedRows.length} 笔记录`)
+        } catch (memoryError) {
+          failed.push(`表内分类学习失败：${memoryError.message}`)
+        }
+      }
+    }
     if (failed.length > 0) setError(`有 ${failed.length} 个文件未导入：${failed.join('；')}`)
     setImportingCount(0)
   }, [])
@@ -124,7 +174,8 @@ export default function Home({ onDataSaved }) {
       if (txForMemory?.date) {
         const date = txForMemory.date
         const mk = `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}`
-        saveOverrides(mk, next).catch(console.error)
+        const monthTransactions = allTxs.filter(tx => `${tx.date.getFullYear()}-${String(tx.date.getMonth() + 1).padStart(2, '0')}` === mk)
+        saveOverrides(mk, scopedOverrides(monthTransactions, next)).catch(console.error)
       }
       return next
     })
@@ -135,7 +186,7 @@ export default function Home({ onDataSaved }) {
         setMemoryNotice('已记住这次分类，下次会自动复用')
       }).catch(console.error)
     }
-  }, [])
+  }, [allTxs])
 
   // Delete: save immediately
   const handleDelete = useCallback(key => {
@@ -150,7 +201,9 @@ export default function Home({ onDataSaved }) {
     setAnalyzed(true); setSaving(true)
     try {
       const monthly = groupByMonth(allTxs)
-      for (const [key, txs] of Object.entries(monthly)) await saveMonth(key, txs)
+      for (const [key, txs] of Object.entries(monthly)) {
+        await Promise.all([saveMonth(key, txs), saveOverrides(key, scopedOverrides(txs, overrides))])
+      }
       onDataSaved?.()
     } catch (err) { console.error('Save failed:', err) }
     setSaving(false)
@@ -161,10 +214,10 @@ export default function Home({ onDataSaved }) {
     if (!analyzed || allTxs.length === 0) return
     const monthly = groupByMonth(allTxs)
     for (const [key, txs] of Object.entries(monthly)) {
-      saveMonth(key, txs).catch(console.error)
+      Promise.all([saveMonth(key, txs), saveOverrides(key, scopedOverrides(txs, overrides))]).catch(console.error)
     }
     onDataSaved?.()
-  }, [analyzed, deletedKeys, manualTxs])
+  }, [analyzed, allTxs, overrides, onDataSaved])
 
   if (analyzed) {
     return (

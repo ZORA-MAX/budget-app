@@ -12,6 +12,7 @@ import {
   getDefaultTags,
   normalizeExclusiveTags,
   toggleExclusiveTag,
+  classificationFromLabels,
 } from '../src/lib/categories.js'
 
 test('adds and renames user-defined categories and subcategories', () => {
@@ -46,4 +47,17 @@ test('never keeps rigid and elastic selected together', () => {
   assert.deepEqual(normalizeExclusiveTags(['rigid', 'elastic', 'emotion'], 'elastic'), ['elastic', 'emotion'])
   assert.deepEqual(toggleExclusiveTag(['rigid', 'emotion'], 'elastic'), ['emotion', 'elastic'])
   assert.deepEqual(toggleExclusiveTag(['elastic', 'emotion'], 'rigid'), ['emotion', 'rigid'])
+})
+
+test('maps reviewed workbook labels back to the editable taxonomy', () => {
+  assert.deepEqual(classificationFromLabels('交通出行', '共享单车', '刚需、效率'), {
+    catKey: 'transport',
+    subKey: 'bike',
+    tags: ['rigid', 'efficiency'],
+  })
+  assert.deepEqual(classificationFromLabels('餐饮消费', '咖啡奶茶', '刚需、弹性'), {
+    catKey: 'food',
+    subKey: 'coffee',
+    tags: ['elastic'],
+  })
 })

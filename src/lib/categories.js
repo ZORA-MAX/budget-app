@@ -370,6 +370,44 @@ export function getPreferredNatureTag(catKey, subKey, name = '') {
   if (subKey === 'work_meal' || subKey === 'takeout') return 'rigid'
   return null
 }
+
+export function classificationFromLabels(categoryLabel, subcategoryLabel, tagLabels = '') {
+  const normalizedCategory = String(categoryLabel || '').trim()
+  const normalizedSubcategory = String(subcategoryLabel || '').trim()
+  let category = CATEGORIES.find(item => item.label === normalizedCategory)
+  if (!category && normalizedSubcategory) {
+    category = CATEGORIES.find(item => item.subs?.some(sub => sub.label === normalizedSubcategory))
+  }
+  if (!category) return null
+  const subcategory = category.subs?.find(item => item.label === normalizedSubcategory) || category.subs?.[0]
+  if (!subcategory) return null
+
+  const labels = String(tagLabels || '').split(/[、,，/]/).map(label => label.trim()).filter(Boolean)
+  const tagKeys = labels
+    .map(label => ALL_TAGS.find(tag => tag.label === label)?.key)
+    .filter(Boolean)
+  const tags = normalizeExclusiveTags(tagKeys, getPreferredNatureTag(category.key, subcategory.key))
+  return {
+    catKey: category.key,
+    subKey: subcategory.key,
+    tags: tags.length > 0 ? tags : getDefaultTags(category.key, subcategory.key),
+  }
+}
+
+export function createTaxonomySnapshot() {
+  return JSON.parse(JSON.stringify({ categories: CATEGORIES, tags: ALL_TAGS }))
+}
+
+export function restoreTaxonomySnapshot(snapshot) {
+  if (!Array.isArray(snapshot?.categories) || !Array.isArray(snapshot?.tags) || snapshot.categories.length === 0) {
+    throw new Error('备份中的自定义分类格式不正确')
+  }
+  CATEGORIES.splice(0, CATEGORIES.length, ...snapshot.categories)
+  ALL_TAGS.splice(0, ALL_TAGS.length, ...snapshot.tags)
+  rebuildTaxonomyMaps()
+  persistTaxonomy()
+}
+
 export const DIMENSION_LABELS = {
   rigid:'刚需固定', elastic:'弹性消费', growth:'提升投资', social:'人情流转',
   emotion:'情绪消费', efficiency:'效率支出', fixed:'固定支出', health:'健康',

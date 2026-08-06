@@ -5,6 +5,9 @@ import * as XLSX from 'xlsx'
 export function parseCSV(text) {
   text = text.replace(/^\uFEFF/, '')
 
+  if (text.includes('完整时间') && text.includes('类型') && text.includes('金额') && (text.includes('交易对象') || text.includes('名称'))) {
+    return parseConsolidatedWorkbook(text)
+  }
   if (text.includes('微信支付账单明细') || text.includes('交易时间,交易类型,交易对方')) return parseWechat(text)
   if (text.includes('支付宝') && text.includes('交易对方')) return parseAlipay(text)
   if (text.includes('记录时间') && text.includes('分类') && text.includes('收支类型')) return parseCashbook(text)
@@ -44,6 +47,80 @@ function parseDate(str) {
 function cleanAmount(str) {
   if (!str) return 0
   return parseFloat(str.replace(/[¥,￥\s]/g, '')) || 0
+}
+
+function sourceFromRow(row) {
+  const text = `${row['平台'] || ''} ${row['来源'] || ''} ${row['账户'] || ''}`.toLowerCase()
+  if (text.includes('微信')) return 'wechat'
+  if (text.includes('支付宝') || text.includes('花呗')) return 'alipay'
+  if (text.includes('拼多多')) return 'pdd'
+  if (text.includes('银行') || text.includes('借记卡') || text.includes('储蓄卡')) return 'bank'
+  return 'cashbook'
+}
+
+function joinDistinct(values) {
+  const distinct = []
+  for (const value of values.map(item => String(item || '').trim()).filter(Boolean)) {
+    if (!distinct.some(existing => existing === value || existing.includes(value))) distinct.push(value)
+  }
+  return distinct.join(' ')
+}
+
+function parseConsolidatedWorkbook(text) {
+  const lines = text.split('\n')
+  const headerIdx = findHeaderLine(lines, ['完整时间', '类型', '金额'])
+  if (headerIdx < 0) return []
+  const { data } = Papa.parse(lines.slice(headerIdx).join('\n'), { header: true, skipEmptyLines: true })
+  const records = data.map(row => {
+    const record = {}
+    for (const key in row) record[key.trim()] = typeof row[key] === 'string' ? row[key].trim() : row[key]
+    return record
+  })
+  const monthCounts = new Map()
+  for (const record of records) {
+    const date = parseDate(String(record['完整时间'] || record['日期'] || ''))
+    if (!date) continue
+    const key = `${date.getFullYear()}-${date.getMonth()}`
+    monthCounts.set(key, (monthCounts.get(key) || 0) + 1)
+  }
+  const inferredMonth = [...monthCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0]
+  const [fallbackYear, fallbackMonth] = inferredMonth ? inferredMonth.split('-').map(Number) : []
+  const rows = []
+
+  for (const record of records) {
+    if (!String(record['类型'] || '').includes('支出')) continue
+    if (['否', '不计入'].some(value => String(record['是否计入收支'] || '').includes(value))) continue
+    const status = String(record['状态'] || '')
+    if (['退款', '关闭', '失败'].some(value => status.includes(value))) continue
+
+    const amount = cleanAmount(String(record['金额'] || record['流出金额'] || ''))
+    const date = parseDate(String(record['完整时间'] || record['日期'] || ''))
+      || (Number.isInteger(fallbackYear) ? new Date(fallbackYear, fallbackMonth, 1) : null)
+    if (amount <= 0 || !date) continue
+
+    const name = String(record['名称'] || '').trim() || joinDistinct([
+      record['交易对象'],
+      record['具体商品或服务'],
+      record['商品清单'],
+    ])
+    if (!name) continue
+
+    rows.push({
+      date,
+      name,
+      note: String(record['备注'] || '').trim(),
+      amount,
+      source: sourceFromRow(record),
+      sourceLabel: String(record['平台'] || record['来源'] || '').trim(),
+      originalCategory: String(record['一级分类'] || record['原始分类'] || '').trim(),
+      importedClassification: {
+        categoryLabel: String(record['一级分类'] || '').trim(),
+        subcategoryLabel: String(record['二级分类'] || '').trim(),
+        tagLabels: String(record['消费性质'] || '').trim(),
+      },
+    })
+  }
+  return rows
 }
 
 function parseWechat(text) {
