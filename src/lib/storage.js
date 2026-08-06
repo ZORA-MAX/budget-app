@@ -2,7 +2,7 @@ import { openDB } from 'idb'
 import { analysisRowsToMemoryRecords, classificationMemoryKey, mergeMemoryRecord } from './classification-memory.js'
 
 const DB_NAME = 'budget-app'
-const DB_VERSION = 3
+const DB_VERSION = 4
 const STORE_NAME = 'monthly-data'
 const OVERRIDE_STORE_NAME = 'overrides'
 const MEMORY_STORE = 'classification-memory'
