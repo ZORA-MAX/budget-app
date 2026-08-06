@@ -18,6 +18,7 @@ const SOURCE_LABELS = {
   pdd: '拼多多',
   bank: '银行卡',
   cashbook: '记账本',
+  combined: '综合账单',
 }
 
 function localDateString(date) {
@@ -91,8 +92,9 @@ export default function Home({ onDataSaved }) {
     const results = await Promise.allSettled(batch.map(async file => {
       const txs = await parseBillFile(file)
       if (txs.length === 0) throw new Error('没有识别到支出记录')
-      const source = txs[0]?.source || 'cashbook'
-      const sourceLabel = txs[0]?.sourceLabel || SOURCE_LABELS[source] || '记账本'
+      const sources = new Set(txs.map(tx => tx.source).filter(Boolean))
+      const source = sources.size > 1 ? 'combined' : txs[0]?.source || 'cashbook'
+      const sourceLabel = source === 'combined' ? '综合账单' : txs[0]?.sourceLabel || SOURCE_LABELS[source] || '记账本'
       return {
         key: `${file.name}-${file.size}-${file.lastModified}-${crypto.randomUUID()}`,
         filename: file.name,

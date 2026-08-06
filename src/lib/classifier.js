@@ -100,7 +100,7 @@ export function resolveClassification(tx, override, memory = {}) {
 export function summarizeByCategory(transactions, overrides = {}, memory = {}) {
   const map = {}
   for (const tx of transactions) {
-    const key = `${tx.date.toISOString()}_${tx.amount}_${tx.name}`
+    const key = `${tx.date.toISOString()}_${tx.amount}_${tx.name}${tx.recordId ? `_${tx.recordId}` : ''}`
     const override = overrides[key]
     const effectiveAmount = Number.isFinite(override?.editedAmount) ? override.editedAmount : tx.amount
     const effectiveTx = { ...tx, name: override?.editedName ?? tx.name, amount: effectiveAmount }

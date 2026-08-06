@@ -24,6 +24,7 @@ test('parses the consolidated review workbook and preserves product and classifi
       二级分类: '生活小物',
       消费性质: '刚需、改善',
       备注: '旅行使用',
+      证据ID: 'PDD-001',
     },
     { 完整时间: '2026-05-09', 类型: '收入', 金额: '100', 交易对象: '退款', 平台: '支付宝' },
     { 完整时间: '2026-05-10', 类型: '支出', 金额: '9.9', 交易对象: '不计入项目', 是否计入收支: '否' },
@@ -34,6 +35,7 @@ test('parses the consolidated review workbook and preserves product and classifi
   assert.equal(transactions[0].source, 'pdd')
   assert.match(transactions[0].name, /双层不锈钢咖啡杯/)
   assert.equal(transactions[0].note, '旅行使用')
+  assert.equal(transactions[0].recordId, 'PDD-001')
   assert.deepEqual(transactions[0].importedClassification, {
     categoryLabel: '日用消耗',
     subcategoryLabel: '生活小物',

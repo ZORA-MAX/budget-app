@@ -87,7 +87,7 @@ function parseConsolidatedWorkbook(text) {
   const [fallbackYear, fallbackMonth] = inferredMonth ? inferredMonth.split('-').map(Number) : []
   const rows = []
 
-  for (const record of records) {
+  for (const [recordIndex, record] of records.entries()) {
     if (!String(record['类型'] || '').includes('支出')) continue
     if (['否', '不计入'].some(value => String(record['是否计入收支'] || '').includes(value))) continue
     const status = String(record['状态'] || '')
@@ -110,6 +110,12 @@ function parseConsolidatedWorkbook(text) {
       name,
       note: String(record['备注'] || '').trim(),
       amount,
+      recordId: joinDistinct([
+        record['证据ID'],
+        record['交易号'],
+        record['订单号'],
+        record['来源文件'] && record['原始行号'] ? `${record['来源文件']}#${record['原始行号']}` : '',
+      ]) || `sheet-row-${headerIdx + recordIndex + 2}`,
       source: sourceFromRow(record),
       sourceLabel: String(record['平台'] || record['来源'] || '').trim(),
       originalCategory: String(record['一级分类'] || record['原始分类'] || '').trim(),
@@ -208,5 +214,5 @@ export function fmtMoney(n) {
 }
 
 export function txKey(tx) {
-  return `${tx.date.toISOString()}_${tx.amount}_${tx.name}`
+  return `${tx.date.toISOString()}_${tx.amount}_${tx.name}${tx.recordId ? `_${tx.recordId}` : ''}`
 }
