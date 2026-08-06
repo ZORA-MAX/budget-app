@@ -22,8 +22,13 @@ export default function AISummary({ byCat, total, diff, prevTotal, month }) {
   const [loading, setLoading] = useState(false)
   const [aiText, setAiText] = useState('')
   const localSummary = generateLocalSummary(byCat, total, diff, prevTotal, month)
+  const isStaticBackupSite = window.location.hostname.endsWith('github.io')
 
   const fetchAI = async () => {
+    if (isStaticBackupSite) {
+      setAiText('当前是稳定备用入口，月度小结和全部账单功能可正常使用；AI 深度分析需要后端服务，暂不在此入口提供。')
+      return
+    }
     setLoading(true)
     try {
       const payload = {
@@ -49,7 +54,7 @@ export default function AISummary({ byCat, total, diff, prevTotal, month }) {
       {!aiText ? (
         <button onClick={fetchAI} disabled={loading}
           className="w-full py-3 rounded-xl text-sm font-medium bg-brand/10 text-brand hover:bg-brand/20 disabled:opacity-50 transition-colors">
-          {loading ? '正在分析...' : '✨ 生成 AI 深度消费分析'}
+          {loading ? '正在分析...' : isStaticBackupSite ? '✨ 查看备用入口说明' : '✨ 生成 AI 深度消费分析'}
         </button>
       ) : (
         <div className="bg-brand-faint dark:bg-brand/10 rounded-xl p-4 border border-brand/20">

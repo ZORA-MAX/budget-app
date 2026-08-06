@@ -29,7 +29,7 @@ function PencilIcon() {
 
 const TAXONOMY_LABELS = {
   category: '一级分类',
-  subcategory: '子分类',
+  subcategory: '二级分类',
   tag: '消费性质',
 }
 
@@ -67,11 +67,12 @@ function TaxonomyEditor({ editor, onSubmit, onClose }) {
 }
 
 /* ═══ Edit Modal (desktop: all fields visible in three columns) ═══ */
-function EditModal({ txName, currentAmount, count, mergeMemory, currentCatKey, currentSubKey, currentTags, onSave, onDelete, onClose }) {
+function EditModal({ txName, currentNote, currentAmount, count, mergeMemory, currentCatKey, currentSubKey, currentTags, onSave, onDelete, onClose }) {
   const [catKey, setCatKey] = useState(currentCatKey)
   const [subKey, setSubKey] = useState(currentSubKey)
   const [tags, setTags] = useState(currentTags || getDefaultTags(currentCatKey, currentSubKey))
   const [name, setName] = useState(txName || '')
+  const [note, setNote] = useState(currentNote || '')
   const [amount, setAmount] = useState(currentAmount == null ? '' : String(currentAmount))
   const [taxonomyEditor, setTaxonomyEditor] = useState(null)
   const [, refreshTaxonomy] = useState(0)
@@ -120,7 +121,7 @@ function EditModal({ txName, currentAmount, count, mergeMemory, currentCatKey, c
       catKey,
       subKey,
       tags,
-      ...(isBatch ? {} : { editedName: name.trim(), editedAmount: parsedAmount }),
+      ...(isBatch ? {} : { editedName: name.trim(), editedNote: note.trim(), editedAmount: parsedAmount }),
     })
   }
 
@@ -162,8 +163,13 @@ function EditModal({ txName, currentAmount, count, mergeMemory, currentCatKey, c
                 <div className="space-y-4">
                   <label className="block">
                     <span className="block text-sm font-medium text-ink-secondary mb-2">消费名称</span>
-                    <textarea value={name} onChange={e => setName(e.target.value)} rows="4" placeholder="输入商家或消费内容"
+                    <textarea value={name} onChange={e => setName(e.target.value)} rows="3" placeholder="输入商家或消费内容"
                       className="w-full resize-none rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3.5 py-3 text-base leading-relaxed text-ink dark:text-white outline-none focus:border-brand focus:ring-2 focus:ring-brand/10" />
+                  </label>
+                  <label className="block">
+                    <span className="block text-sm font-medium text-ink-secondary mb-2">备注信息</span>
+                    <textarea value={note} onChange={e => setNote(e.target.value)} rows="3" placeholder="可填写商品、用途或核对说明"
+                      className="w-full resize-none rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3.5 py-3 text-sm leading-relaxed text-ink dark:text-white outline-none focus:border-brand focus:ring-2 focus:ring-brand/10" />
                   </label>
                   <label className="block">
                     <span className="block text-sm font-medium text-ink-secondary mb-2">消费金额</span>
@@ -203,7 +209,7 @@ function EditModal({ txName, currentAmount, count, mergeMemory, currentCatKey, c
                 <span className="w-6 h-6 rounded-full bg-brand text-white text-xs font-semibold flex items-center justify-center">2</span>
                 <div>
                   <h3 className="text-base font-semibold text-ink dark:text-white">消费分类</h3>
-                  <p className="text-xs text-ink-tertiary mt-0.5">先选一级分类，再选择对应子分类</p>
+                  <p className="text-xs text-ink-tertiary mt-0.5">先选一级分类，再选择对应二级分类</p>
                 </div>
               </div>
               <div className="flex items-center justify-between gap-3 mb-3">
@@ -237,7 +243,7 @@ function EditModal({ txName, currentAmount, count, mergeMemory, currentCatKey, c
               ))}
               </div>
               <div className="flex items-center justify-between gap-3 mb-2.5">
-                <p className="text-sm font-medium text-ink-secondary">{cat.label} · 子分类</p>
+                <p className="text-sm font-medium text-ink-secondary">{cat.label} · 二级分类</p>
                 <span className="text-xs text-ink-tertiary">单选</span>
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-2">
@@ -256,7 +262,7 @@ function EditModal({ txName, currentAmount, count, mergeMemory, currentCatKey, c
               ))}
               <button type="button" data-testid="add-subcategory" onClick={() => openTaxonomyEditor('subcategory', 'add')}
                 className="min-h-10 text-sm px-3 py-2 rounded-xl border border-dashed border-gray-300 text-ink-tertiary hover:border-brand hover:text-brand transition-colors">
-                + 添加子分类
+                + 添加二级分类
               </button>
               </div>
             </section>
@@ -313,10 +319,10 @@ function EditModal({ txName, currentAmount, count, mergeMemory, currentCatKey, c
 }
 
 /* ═══ Add Modal ═══ */
-function AddModal({ onAdd, onClose }) {
+function AddModal({ onAdd, onClose, defaultMonth }) {
   const [name, setName] = useState('')
   const [amount, setAmount] = useState('')
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0])
+  const [date, setDate] = useState(defaultMonth ? `${defaultMonth}-01` : new Date().toISOString().split('T')[0])
   const handleAdd = () => { const a = parseFloat(amount); if (!name.trim() || !a) return; onAdd({ name: name.trim(), amount: a, date: new Date(date), source: 'manual' }); onClose() }
 
   return ReactDOM.createPortal(
@@ -346,7 +352,7 @@ function AddModal({ onAdd, onClose }) {
 }
 
 /* ═══ Main: Sidebar + List Layout ═══ */
-export default function TransactionList({ transactions, overrides, memory = {}, onOverride, onDelete, onAdd }) {
+export default function TransactionList({ transactions, overrides, memory = {}, onOverride, onDelete, onAdd, defaultMonth }) {
   const [editingIdx, setEditingIdx] = useState(null)
   const [showAdd, setShowAdd] = useState(false)
   const [batchMode, setBatchMode] = useState(false)
@@ -364,6 +370,7 @@ export default function TransactionList({ transactions, overrides, memory = {}, 
       const effectiveTx = {
         ...tx,
         name: ov?.editedName ?? tx.name,
+        note: ov?.editedNote ?? tx.note ?? '',
         amount: Number.isFinite(ov?.editedAmount) ? ov.editedAmount : tx.amount,
       }
       const resolved = resolveClassification(effectiveTx, ov, memory)
@@ -505,6 +512,7 @@ export default function TransactionList({ transactions, overrides, memory = {}, 
                   <div className="w-0.5 h-6 rounded-full flex-shrink-0" style={{ backgroundColor: group.cat.color + '50' }} />
                   <div className="flex-1 min-w-0">
                     <div className="text-[13px] text-ink dark:text-white truncate">{tx.name || '未知'}</div>
+                    {tx.note && <div className="text-[10px] text-ink-tertiary truncate mt-0.5" title={tx.note}>备注：{tx.note}</div>}
                     <div className="flex items-center gap-1 mt-0.5 flex-wrap">
                       <span className="text-[10px] text-ink-tertiary">{tx.date.getMonth()+1}/{tx.date.getDate()}</span>
                       <span className="text-[9px] px-1.5 py-0.5 rounded" style={{ backgroundColor: group.cat.bg, color: group.cat.color }}>{tx.sub?.label || '未分类'}</span>
@@ -531,7 +539,7 @@ export default function TransactionList({ transactions, overrides, memory = {}, 
 
       {/* Modals */}
       {editingTx && !batchEdit && (
-        <EditModal txName={editingTx.name} currentAmount={editingTx.amount} count={1} mergeMemory={editingTx.mergeMemory} currentCatKey={editingTx.catKey} currentSubKey={editingTx.subKey}
+        <EditModal txName={editingTx.name} currentNote={editingTx.note} currentAmount={editingTx.amount} count={1} mergeMemory={editingTx.mergeMemory} currentCatKey={editingTx.catKey} currentSubKey={editingTx.subKey}
           currentTags={editingTx.tags} onSave={handleSaveSingle} onDelete={handleDeleteSingle} onClose={() => setEditingIdx(null)} />
       )}
       {batchEdit && (
@@ -539,7 +547,7 @@ export default function TransactionList({ transactions, overrides, memory = {}, 
           currentCatKey={CATEGORIES[0].key} currentSubKey={CATEGORIES[0].subs[0]?.key}
           currentTags={CATEGORIES[0].defaultTags} onSave={handleSaveBatch} onDelete={handleDeleteBatch} onClose={() => setBatchEdit(false)} />
       )}
-      {showAdd && <AddModal onAdd={onAdd} onClose={() => setShowAdd(false)} />}
+      {showAdd && <AddModal onAdd={onAdd} onClose={() => setShowAdd(false)} defaultMonth={defaultMonth} />}
     </div>
   )
 }
