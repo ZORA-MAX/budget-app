@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { summarizeByCategory } from '../lib/classifier'
 import { groupByMonth, fmtMoney, txKey } from '../lib/csv-parser'
 import { classify } from '../lib/classifier'
@@ -17,6 +17,10 @@ export default function Dashboard({ transactions, overrides = {}, onOverride, on
   const monthKeys = useMemo(() => Object.keys(monthlyMap).sort().reverse(), [monthlyMap])
   const [selectedMonth, setSelectedMonth] = useState(monthKeys[0] || '')
   const [activeTab, setActiveTab] = useState('overview')
+
+  useEffect(() => {
+    if (!monthKeys.includes(selectedMonth)) setSelectedMonth(monthKeys[0] || '')
+  }, [monthKeys, selectedMonth])
 
   const txs = useMemo(() => monthlyMap[selectedMonth] || [], [monthlyMap, selectedMonth])
   const byCat = useMemo(() => summarizeByCategory(txs, overrides), [txs, overrides])
@@ -108,7 +112,7 @@ export default function Dashboard({ transactions, overrides = {}, onOverride, on
           <AISummary byCat={byCat} total={total} diff={diff} prevTotal={prevTotal} month={selectedMonth} />
         </>
       ) : (
-        <TransactionList transactions={txs} overrides={overrides} onOverride={onOverride} onDelete={onDelete} onAdd={onAdd} />
+        <TransactionList transactions={txs} overrides={overrides} onOverride={onOverride} onDelete={onDelete} onAdd={onAdd} defaultMonth={selectedMonth} />
       )}
     </div>
   )

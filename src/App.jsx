@@ -34,7 +34,7 @@ export default function App() {
             月度账单分析
           </h1>
           <p className="text-sm text-ink-secondary mt-1">
-            导入微信 + 支付宝账单，自动生成消费报告
+            导入微信、支付宝或银行卡截图，自动生成消费报告
           </p>
         </header>
         <Nav />

@@ -1,5 +1,6 @@
 import { useState, useCallback, useMemo, useEffect } from 'react'
 import Dashboard from '../components/Dashboard'
+import ScreenshotImporter from '../components/ScreenshotImporter'
 import { parseCSV, parseExcel, groupByMonth, txKey } from '../lib/csv-parser'
 import { saveMonth, saveOverrides } from '../lib/storage'
 
@@ -81,6 +82,11 @@ export default function Home({ onDataSaved }) {
     setManualTxs(prev => [...prev, tx])
   }, [])
 
+  const handleScreenshotImport = useCallback(txs => {
+    setManualTxs(prev => [...prev, ...txs])
+    setAnalyzed(false)
+  }, [])
+
   const handleAnalyze = async () => {
     setAnalyzed(true); setSaving(true)
     try {
@@ -157,7 +163,18 @@ export default function Home({ onDataSaved }) {
           onChange={e => { Array.from(e.target.files).forEach(f => handleFile(f)); e.target.value = '' }} />
       </div>
 
-      {files.length > 0 ? (
+      <div className="mt-3">
+        <ScreenshotImporter onImport={handleScreenshotImport} />
+      </div>
+
+      {manualTxs.length > 0 && (
+        <div className="mt-3 flex items-center justify-between rounded-xl bg-amber-50 px-4 py-3 dark:bg-amber-950/30">
+          <div><div className="text-sm font-medium text-ink dark:text-white">📷 银行卡截图账单</div><div className="mt-0.5 text-xs text-ink-secondary">已加入 {manualTxs.length} 笔，生成报告后可继续修改</div></div>
+          <button onClick={() => setManualTxs([])} className="rounded-md px-2 py-1 text-sm text-ink-tertiary hover:text-red-500">✕</button>
+        </div>
+      )}
+
+      {files.length > 0 || manualTxs.length > 0 ? (
         <button onClick={handleAnalyze} className="w-full mt-4 py-3 bg-brand text-white rounded-xl text-sm font-medium hover:bg-brand-light transition-colors">
           生成分析报告 →
         </button>
@@ -167,7 +184,8 @@ export default function Home({ onDataSaved }) {
           <div className="space-y-4">
             {[['1','微信账单','微信 → 我 → 支付 → 钱包 → 账单 → 下载账单 → CSV'],
               ['2','支付宝账单','支付宝 → 搜索"账单" → 所有交易 → 导出 → CSV'],
-              ['3','记账本 / Excel','支持大部分记账软件导出的 CSV 和 Excel 格式']
+              ['3','银行卡截图','打开银行 App 的账单或交易明细，截图后在上方识别并核对'],
+              ['4','记账本 / Excel','支持大部分记账软件导出的 CSV 和 Excel 格式']
             ].map(([n,t,d]) => (
               <div key={n} className="flex gap-3">
                 <div className="w-6 h-6 rounded-full bg-brand text-white text-xs font-semibold flex items-center justify-center flex-shrink-0 mt-0.5">{n}</div>
