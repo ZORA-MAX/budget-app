@@ -93,10 +93,10 @@ function EditModal({ txNames, count, currentCatKey, currentSubKey, currentTags, 
 }
 
 /* ═══ Add Modal ═══ */
-function AddModal({ onAdd, onClose }) {
+function AddModal({ onAdd, onClose, defaultMonth }) {
   const [name, setName] = useState('')
   const [amount, setAmount] = useState('')
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0])
+  const [date, setDate] = useState(defaultMonth ? `${defaultMonth}-01` : new Date().toISOString().split('T')[0])
   const handleAdd = () => { const a = parseFloat(amount); if (!name.trim() || !a) return; onAdd({ name: name.trim(), amount: a, date: new Date(date), source: 'manual' }); onClose() }
 
   return ReactDOM.createPortal(
@@ -126,7 +126,7 @@ function AddModal({ onAdd, onClose }) {
 }
 
 /* ═══ Main: Sidebar + List Layout ═══ */
-export default function TransactionList({ transactions, overrides, onOverride, onDelete, onAdd }) {
+export default function TransactionList({ transactions, overrides, onOverride, onDelete, onAdd, defaultMonth }) {
   const [editingIdx, setEditingIdx] = useState(null)
   const [showAdd, setShowAdd] = useState(false)
   const [batchMode, setBatchMode] = useState(false)
@@ -289,7 +289,7 @@ export default function TransactionList({ transactions, overrides, onOverride, o
           currentCatKey={CATEGORIES[0].key} currentSubKey={CATEGORIES[0].subs[0]?.key}
           currentTags={CATEGORIES[0].defaultTags} onSave={handleSaveBatch} onDelete={handleDeleteBatch} onClose={() => setBatchEdit(false)} />
       )}
-      {showAdd && <AddModal onAdd={onAdd} onClose={() => setShowAdd(false)} />}
+      {showAdd && <AddModal onAdd={onAdd} onClose={() => setShowAdd(false)} defaultMonth={defaultMonth} />}
     </div>
   )
 }

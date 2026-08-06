@@ -33,6 +33,13 @@ git push -u origin main
 #    CLAUDE_API_KEY = 你的API密钥
 ```
 
+## 稳定备用入口与数据备份
+
+- GitHub Pages 备用入口：`https://zora-max.github.io/budget-app/`
+- 推送到 `main` 后，GitHub Actions 会自动构建并更新备用入口。
+- 备用入口支持账单导入、分类、历史记录、完整 JSON 备份与恢复；AI 深度分析仍需使用带后端的 Vercel 入口。
+- “历史记录”页可随时导出完整备份。备份保留交易的全部字段和人工分类，换设备后可直接导入恢复。
+
 ## 功能
 
 - 自动识别微信 / 支付宝两种 CSV 格式
@@ -41,6 +48,6 @@ git push -u origin main
 - 11 大类 33 子类自动分类
 - 月度消费看板（环形图 + 分类明细 + 趋势）
 - AI 消费分析（需配置 Claude API Key）
-- 本地数据持久化（IndexedDB）
+- 本地数据持久化（IndexedDB）及完整 JSON 备份/恢复
 - 响应式设计，移动端友好
 - 支持暗色模式
