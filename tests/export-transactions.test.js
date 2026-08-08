@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import * as XLSX from 'xlsx'
+import { txKey } from '../src/lib/csv-parser.js'
 
 import {
   buildCashflowSummaryRows,
@@ -72,6 +73,37 @@ test('summarizes income, refunds, expenses and net cashflow separately', () => {
     { 月份: '2026-07', 类型: '支出', 流入金额: 0, 流出金额: 200, 净额: -200, 合并笔数: 1 },
   ])
   assert.deepEqual(summary, [{ 月份: '2026-07', 收入: 5000, 退款: 30, 支出: 200, 净现金流: 4830, 流水笔数: 3 }])
+})
+
+test('applies edited income fields and amount to detail and cashflow summary', () => {
+  const income = {
+    date: new Date(2026, 6, 25, 9, 30),
+    direction: 'income',
+    name: '入账',
+    merchant: '原交易对方',
+    productName: '原收入项目',
+    details: '原备注',
+    amount: 5000,
+    source: 'bank',
+  }
+  const rows = buildTransactionExportRows([income], {
+    [txKey(income)]: {
+      editedName: '7月工资',
+      editedMerchant: '测试公司',
+      editedProductName: '工资与津贴',
+      editedDetails: '2026年7月工资',
+      editedAmount: 5800,
+    },
+  })
+
+  assert.equal(rows[0].名称, '7月工资')
+  assert.equal(rows[0].交易对象, '测试公司')
+  assert.equal(rows[0].具体商品或服务, '工资与津贴')
+  assert.equal(rows[0].交易详情, '2026年7月工资')
+  assert.equal(rows[0].流入金额, 5800)
+  assert.deepEqual(buildCashflowSummaryRows(rows), [{
+    月份: '2026-07', 收入: 5800, 退款: 0, 支出: 0, 净现金流: 5800, 流水笔数: 1,
+  }])
 })
 
 test('creates detail and summary worksheets', () => {

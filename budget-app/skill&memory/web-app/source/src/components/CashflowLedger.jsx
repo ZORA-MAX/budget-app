@@ -1,4 +1,4 @@
-import { fmtMoney } from '../lib/csv-parser'
+import { fmtMoney, txKey } from '../lib/csv-parser'
 
 const DIRECTION = {
   expense: { label: '支出', className: 'bg-red-50 text-red-600' },
@@ -14,7 +14,7 @@ function formatDateTime(date) {
   return `${date.getMonth() + 1}月${date.getDate()}日 ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
 }
 
-export default function CashflowLedger({ transactions }) {
+export default function CashflowLedger({ transactions, overrides = {} }) {
   return (
     <section className="bg-white dark:bg-surface-card-dark rounded-xl overflow-hidden">
       <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-800">
@@ -22,7 +22,16 @@ export default function CashflowLedger({ transactions }) {
         <div className="text-[11px] text-ink-tertiary mt-1">商品名优先采用已匹配截图；点击一笔流水可查看账单原始字段。</div>
       </div>
       <div className="divide-y divide-gray-100 dark:divide-gray-800">
-        {transactions.slice().sort((a, b) => b.date - a.date).map((tx, index) => {
+        {transactions.slice().sort((a, b) => b.date - a.date).map((originalTx, index) => {
+          const override = overrides[txKey(originalTx)]
+          const tx = {
+            ...originalTx,
+            name: override?.editedName ?? originalTx.name,
+            merchant: override?.editedMerchant ?? originalTx.merchant,
+            productName: override?.editedProductName ?? originalTx.productName,
+            details: override?.editedDetails ?? originalTx.details,
+            amount: Number.isFinite(override?.editedAmount) ? override.editedAmount : originalTx.amount,
+          }
           const direction = tx.direction || 'expense'
           const meta = DIRECTION[direction] || DIRECTION.other
           const product = tx.productName || (direction === 'expense' ? '具体商品待截图补全' : tx.name || '—')

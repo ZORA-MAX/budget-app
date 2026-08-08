@@ -25,8 +25,14 @@ export default function Dashboard({ transactions, overrides = {}, memory = {}, o
     const override = overrides[txKey(tx)]
     return sum + (Number.isFinite(override?.editedAmount) ? override.editedAmount : tx.amount)
   }, 0), [expenseTxs, overrides])
-  const incomeTotal = useMemo(() => txs.filter(isIncomeTransaction).reduce((sum, tx) => sum + tx.amount, 0), [txs])
-  const refundTotal = useMemo(() => txs.filter(isRefundTransaction).reduce((sum, tx) => sum + tx.amount, 0), [txs])
+  const incomeTotal = useMemo(() => txs.filter(isIncomeTransaction).reduce((sum, tx) => {
+    const override = overrides[txKey(tx)]
+    return sum + (Number.isFinite(override?.editedAmount) ? override.editedAmount : tx.amount)
+  }, 0), [txs, overrides])
+  const refundTotal = useMemo(() => txs.filter(isRefundTransaction).reduce((sum, tx) => {
+    const override = overrides[txKey(tx)]
+    return sum + (Number.isFinite(override?.editedAmount) ? override.editedAmount : tx.amount)
+  }, 0), [txs, overrides])
   const netCashflow = incomeTotal + refundTotal - total
 
   const prevKey = monthKeys[monthKeys.indexOf(selectedMonth) + 1]
@@ -137,7 +143,7 @@ export default function Dashboard({ transactions, overrides = {}, memory = {}, o
         <button onClick={() => setActiveTab('transactions')}
           className={`flex-1 py-2 rounded-xl text-sm font-medium transition-colors
             ${activeTab === 'transactions' ? 'bg-brand text-white' : 'bg-white dark:bg-surface-card-dark text-ink-secondary border border-gray-200 dark:border-gray-700'}`}>
-          📋 支出明细
+          📋 收支明细
         </button>
         <button onClick={() => setActiveTab('ledger')}
           className={`py-2 rounded-xl text-sm font-medium transition-colors ${activeTab === 'ledger' ? 'bg-brand text-white' : 'bg-white dark:bg-surface-card-dark text-ink-secondary border border-gray-200 dark:border-gray-700'}`}>
@@ -158,8 +164,8 @@ export default function Dashboard({ transactions, overrides = {}, memory = {}, o
           <AISummary byCat={byCat} total={total} diff={diff} prevTotal={prevTotal} month={selectedMonth} />
         </>
       ) : activeTab === 'transactions' ? (
-        <TransactionList transactions={expenseTxs} overrides={overrides} memory={memory} onOverride={onOverride} onDelete={onDelete} onAdd={onAdd} />
-      ) : <CashflowLedger transactions={txs} />}
+        <TransactionList transactions={txs} overrides={overrides} memory={memory} onOverride={onOverride} onDelete={onDelete} onAdd={onAdd} />
+      ) : <CashflowLedger transactions={txs} overrides={overrides} />}
     </div>
   )
 }

@@ -33,6 +33,17 @@ const TAXONOMY_LABELS = {
   tag: '消费性质',
 }
 
+const FLOW_GROUPS = {
+  income: { key: 'cashflow-income', label: '收入', emoji: '💰', color: '#047857', bg: '#ecfdf5' },
+  refund: { key: 'cashflow-refund', label: '退款', emoji: '↩️', color: '#0369a1', bg: '#f0f9ff' },
+  transfer: { key: 'cashflow-transfer', label: '资金流转', emoji: '🔄', color: '#475569', bg: '#f1f5f9' },
+  other: { key: 'cashflow-other', label: '其他流水', emoji: '🧾', color: '#64748b', bg: '#f8fafc' },
+}
+
+function directionLabel(direction) {
+  return direction === 'income' ? '收入' : direction === 'refund' ? '退款' : direction === 'expense' ? '支出' : '交易'
+}
+
 function TaxonomyEditor({ editor, onSubmit, onClose }) {
   const [value, setValue] = useState(editor.initialValue || '')
   const label = TAXONOMY_LABELS[editor.type]
@@ -67,7 +78,7 @@ function TaxonomyEditor({ editor, onSubmit, onClose }) {
 }
 
 /* ═══ Edit Modal (desktop: all fields visible in three columns) ═══ */
-function EditModal({ txName, txMerchant, txProductName, txDetails, currentAmount, count, mergeMemory, currentCatKey, currentSubKey, currentTags, onSave, onDelete, onClose }) {
+function EditModal({ txName, txMerchant, txProductName, txDetails, currentAmount, direction = 'expense', count, mergeMemory, currentCatKey, currentSubKey, currentTags, onSave, onDelete, onClose }) {
   const [catKey, setCatKey] = useState(currentCatKey)
   const [subKey, setSubKey] = useState(currentSubKey)
   const [tags, setTags] = useState(currentTags || getDefaultTags(currentCatKey, currentSubKey))
@@ -80,6 +91,8 @@ function EditModal({ txName, txMerchant, txProductName, txDetails, currentAmount
   const [, refreshTaxonomy] = useState(0)
   const cat = getCategoryByKey(catKey)
   const isBatch = count > 1
+  const isExpense = isBatch || direction === 'expense'
+  const flowLabel = directionLabel(direction)
   const parsedAmount = Number.parseFloat(amount)
   const canSave = isBatch || (name.trim() && Number.isFinite(parsedAmount) && parsedAmount > 0)
   const toggleTag = k => setTags(previous => toggleExclusiveTag(previous, k))
@@ -120,9 +133,7 @@ function EditModal({ txName, txMerchant, txProductName, txDetails, currentAmount
   const handleSave = () => {
     if (!canSave) return
     onSave({
-      catKey,
-      subKey,
-      tags,
+      ...(isExpense ? { catKey, subKey, tags } : {}),
       ...(isBatch ? {} : {
         editedName: name.trim(),
         editedMerchant: merchant.trim(),
@@ -143,8 +154,8 @@ function EditModal({ txName, txMerchant, txProductName, txDetails, currentAmount
         <div className="px-5 lg:px-7 py-4 border-b border-gray-100 dark:border-gray-800 flex-shrink-0">
           <div className="flex items-center justify-between gap-4">
             <div className="min-w-0">
-              <h2 id="edit-transaction-title" className="text-lg font-semibold text-ink dark:text-white">{isBatch ? `批量编辑 ${count} 笔交易` : '编辑交易'}</h2>
-              <p className="text-sm text-ink-secondary mt-0.5 truncate">{isBatch ? '为已选交易统一设置分类和消费性质' : '消费名称、商家、产品、详细内容与分类可在同一页完成修改'}</p>
+              <h2 id="edit-transaction-title" className="text-lg font-semibold text-ink dark:text-white">{isBatch ? `批量编辑 ${count} 笔交易` : `编辑${flowLabel}`}</h2>
+              <p className="text-sm text-ink-secondary mt-0.5 truncate">{isBatch ? '为已选支出统一设置分类和消费性质' : isExpense ? '名称、交易对方、内容、金额与分类可在同一页修改' : '名称、交易对方、收入项目、金额与备注可在同一页修改'}</p>
             </div>
             <button onClick={onClose} aria-label="关闭编辑窗口" className="w-9 h-9 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center justify-center text-ink-tertiary flex-shrink-0">
               <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
@@ -155,11 +166,11 @@ function EditModal({ txName, txMerchant, txProductName, txDetails, currentAmount
         </div>
 
         <div className="overflow-y-auto flex-1 min-h-0 p-4 lg:p-6">
-          <div className="grid grid-cols-1 lg:grid-cols-[minmax(320px,0.95fr)_minmax(460px,1.55fr)_minmax(240px,0.8fr)] gap-4 lg:gap-5">
+          <div className={`grid grid-cols-1 gap-4 lg:gap-5 ${isExpense ? 'lg:grid-cols-[minmax(320px,0.95fr)_minmax(460px,1.55fr)_minmax(240px,0.8fr)]' : 'max-w-2xl mx-auto'}`}>
             <section className="rounded-2xl bg-gray-50/80 dark:bg-gray-900/30 border border-gray-100 dark:border-gray-800 p-4 min-[580px]:p-2.5 lg:p-5">
               <div className="flex items-center gap-2 mb-4">
                 <span className="w-6 h-6 rounded-full bg-brand text-white text-xs font-semibold flex items-center justify-center">1</span>
-                <h3 className="text-base font-semibold text-ink dark:text-white">消费内容与金额</h3>
+                <h3 className="text-base font-semibold text-ink dark:text-white">{flowLabel}内容与金额</h3>
               </div>
               {isBatch ? (
                 <div className="rounded-xl bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 p-4">
@@ -170,27 +181,27 @@ function EditModal({ txName, txMerchant, txProductName, txDetails, currentAmount
               ) : (
                 <div className="space-y-4">
                   <label className="block">
-                    <span className="block text-sm font-medium text-ink-secondary mb-2">消费名称 <span className="text-red-500">*</span></span>
-                    <input data-testid="edit-transaction-name" value={name} onChange={e => setName(e.target.value)} placeholder="例如：周末家庭聚餐"
+                    <span className="block text-sm font-medium text-ink-secondary mb-2">{flowLabel}名称 <span className="text-red-500">*</span></span>
+                    <input data-testid="edit-transaction-name" value={name} onChange={e => setName(e.target.value)} placeholder={isExpense ? '例如：周末家庭聚餐' : '例如：工资、报销、二手交易收入'}
                       className="w-full rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3.5 py-3 text-base text-ink dark:text-white outline-none focus:border-brand focus:ring-2 focus:ring-brand/10" />
                   </label>
                   <label className="block">
-                    <span className="block text-sm font-medium text-ink-secondary mb-2">产品 / 服务名称</span>
-                    <input data-testid="edit-transaction-product" value={productName} onChange={e => setProductName(e.target.value)} placeholder="例如：双人套餐、拿铁咖啡、会员续费"
+                    <span className="block text-sm font-medium text-ink-secondary mb-2">{isExpense ? '产品 / 服务名称' : '收入 / 退款项目'}</span>
+                    <input data-testid="edit-transaction-product" value={productName} onChange={e => setProductName(e.target.value)} placeholder={isExpense ? '例如：双人套餐、拿铁咖啡、会员续费' : '例如：7月工资、差旅报销、订单退款'}
                       className="w-full rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3.5 py-3 text-sm text-ink dark:text-white outline-none focus:border-brand focus:ring-2 focus:ring-brand/10" />
                   </label>
                   <label className="block">
-                    <span className="block text-sm font-medium text-ink-secondary mb-2">商家 / 交易对方</span>
+                    <span className="block text-sm font-medium text-ink-secondary mb-2">交易对方</span>
                     <input data-testid="edit-transaction-merchant" value={merchant} onChange={e => setMerchant(e.target.value)} placeholder="例如：盒马、星巴克、Apple"
                       className="w-full rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3.5 py-3 text-sm text-ink dark:text-white outline-none focus:border-brand focus:ring-2 focus:ring-brand/10" />
                   </label>
                   <label className="block">
-                    <span className="block text-sm font-medium text-ink-secondary mb-2">消费明细</span>
-                    <textarea data-testid="edit-transaction-details" value={details} onChange={e => setDetails(e.target.value)} rows="3" placeholder="可填写规格、数量、用途、同行人或其他分析备注"
+                    <span className="block text-sm font-medium text-ink-secondary mb-2">备注信息</span>
+                    <textarea data-testid="edit-transaction-details" value={details} onChange={e => setDetails(e.target.value)} rows="3" placeholder={isExpense ? '可填写规格、数量、用途或其他备注' : '可填写收入来源、所属月份、报销项目或其他备注'}
                       className="w-full resize-y rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3.5 py-3 text-sm leading-relaxed text-ink dark:text-white outline-none focus:border-brand focus:ring-2 focus:ring-brand/10" />
                   </label>
                   <label className="block">
-                    <span className="block text-sm font-medium text-ink-secondary mb-2">消费金额</span>
+                    <span className="block text-sm font-medium text-ink-secondary mb-2">{flowLabel}金额</span>
                     <div className="relative">
                       <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-base font-medium text-ink-secondary">¥</span>
                     <input data-testid="edit-transaction-amount" type="number" min="0.01" step="0.01" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.00"
@@ -217,12 +228,12 @@ function EditModal({ txName, txMerchant, txProductName, txDetails, currentAmount
                       </div>
                     </div>
                   )}
-                  {!canSave && <p className="text-xs text-red-500">请填写消费名称，并输入大于 0 的金额。</p>}
+                  {!canSave && <p className="text-xs text-red-500">请填写名称，并输入大于 0 的金额。</p>}
                 </div>
               )}
             </section>
 
-            <section className="rounded-2xl bg-white dark:bg-surface-card-dark border border-gray-200/80 dark:border-gray-700 p-4 min-[580px]:p-2.5 lg:p-5 min-w-0">
+            {isExpense && <section className="rounded-2xl bg-white dark:bg-surface-card-dark border border-gray-200/80 dark:border-gray-700 p-4 min-[580px]:p-2.5 lg:p-5 min-w-0">
               <div className="flex items-center gap-2 mb-4">
                 <span className="w-6 h-6 rounded-full bg-brand text-white text-xs font-semibold flex items-center justify-center">2</span>
                 <div>
@@ -283,9 +294,9 @@ function EditModal({ txName, txMerchant, txProductName, txDetails, currentAmount
                 + 添加子分类
               </button>
               </div>
-            </section>
+            </section>}
 
-            <section className="rounded-2xl bg-gray-50/80 dark:bg-gray-900/30 border border-gray-100 dark:border-gray-800 p-4 min-[580px]:p-2.5 lg:p-5">
+            {isExpense && <section className="rounded-2xl bg-gray-50/80 dark:bg-gray-900/30 border border-gray-100 dark:border-gray-800 p-4 min-[580px]:p-2.5 lg:p-5">
               <div className="flex items-start justify-between gap-2 mb-4">
                 <div className="flex items-center gap-2">
                   <span className="w-6 h-6 rounded-full bg-brand text-white text-xs font-semibold flex items-center justify-center">3</span>
@@ -313,7 +324,7 @@ function EditModal({ txName, txMerchant, txProductName, txDetails, currentAmount
                 </div>
               ))}
               </div>
-            </section>
+            </section>}
           </div>
         </div>
 
@@ -439,11 +450,29 @@ export default function TransactionList({ transactions, overrides, memory = {}, 
         details: ov?.editedDetails ?? tx.details ?? '',
         amount: Number.isFinite(ov?.editedAmount) ? ov.editedAmount : tx.amount,
       }
+      const direction = tx.direction || 'expense'
+      if (direction !== 'expense') {
+        const cat = FLOW_GROUPS[direction] || FLOW_GROUPS.other
+        return {
+          ...effectiveTx,
+          direction,
+          isExpense: false,
+          idx: i,
+          catKey: cat.key,
+          subKey: '',
+          tags: [],
+          cat,
+          sub: { label: cat.label },
+          classificationSource: null,
+          isOverridden: !!ov,
+          txKey: key,
+        }
+      }
       const resolved = resolveClassification(effectiveTx, ov, memory)
       const { catKey, subKey, tags, source } = resolved
       const cat = getCategoryByKey(catKey)
       const sub = cat.subs?.find(s => s.key === subKey)
-      return { ...effectiveTx, idx: i, catKey, subKey, tags, cat, sub, classificationSource: source, isOverridden: !!ov, txKey: key }
+      return { ...effectiveTx, direction, isExpense: true, idx: i, catKey, subKey, tags, cat, sub, classificationSource: source, isOverridden: !!ov, txKey: key }
     }),
   [transactions, overrides, memory])
 
@@ -484,14 +513,15 @@ export default function TransactionList({ transactions, overrides, memory = {}, 
     if (editingIdx === null || !editingTx) return
     const originalTx = transactions[editingIdx]
     const key = txKey(originalTx)
-    onOverride(key, { ...overrides[key], ...payload }, {
+    const effectiveForMemory = {
       ...originalTx,
       name: payload.editedName,
       merchant: payload.editedMerchant,
       productName: payload.editedProductName,
       details: payload.editedDetails,
       amount: payload.editedAmount,
-    })
+    }
+    onOverride(key, { ...overrides[key], ...payload }, editingTx.isExpense ? effectiveForMemory : null)
     setEditingIdx(null)
   }
   const handleDeleteSingle = () => { if (editingIdx === null) return; onDelete(txKey(transactions[editingIdx])); setEditingIdx(null) }
@@ -507,6 +537,7 @@ export default function TransactionList({ transactions, overrides, memory = {}, 
   const handleDeleteBatch = () => { for (const i of selected) onDelete(txKey(transactions[i])); setBatchEdit(false); clearSelect() }
 
   const editingTx = editingIdx !== null ? classified.find(t => t.idx === editingIdx) : null
+  const sidebarGroups = [...Object.values(FLOW_GROUPS), ...CATEGORIES].filter(c => catCounts[c.key])
 
   return (
     <div className="flex gap-3" style={{ minHeight: '60vh' }}>
@@ -518,11 +549,11 @@ export default function TransactionList({ transactions, overrides, memory = {}, 
               ${activeCat === 'all' ? 'bg-brand text-white font-medium' : 'text-ink-secondary hover:bg-gray-50'}`}>
             全部<br/><span className="text-[10px] opacity-70">{classified.length}</span>
           </button>
-          {CATEGORIES.filter(c => catCounts[c.key]).map(c => (
+          {sidebarGroups.map(c => (
             <button key={c.key} onClick={() => setActiveCat(activeCat === c.key ? 'all' : c.key)}
               className={`w-full py-2 px-1 text-center border-b border-gray-50 transition-colors
                 ${activeCat === c.key ? 'bg-brand-faint border-l-2 border-l-brand' : 'hover:bg-gray-50'}`}>
-              <div className="text-base mb-0.5">{c.icon === 'housing' ? '🏠' : c.icon === 'food' ? '🍜' : c.icon === 'transport' ? '🚌' : c.icon === 'daily' ? '🧴' : c.icon === 'fashion' ? '👗' : c.icon === 'digital' ? '💻' : c.icon === 'career' ? '💼' : c.icon === 'education' ? '📚' : c.icon === 'health' ? '💊' : c.icon === 'sport' ? '🏃' : c.icon === 'entertain' ? '🎮' : c.icon === 'travel' ? '✈️' : c.icon === 'social' ? '🧧' : c.icon === 'transfer' ? '🔄' : '📦'}</div>
+              <div className="text-base mb-0.5">{c.emoji || (c.icon === 'housing' ? '🏠' : c.icon === 'food' ? '🍜' : c.icon === 'transport' ? '🚌' : c.icon === 'daily' ? '🧴' : c.icon === 'fashion' ? '👗' : c.icon === 'digital' ? '💻' : c.icon === 'career' ? '💼' : c.icon === 'education' ? '📚' : c.icon === 'health' ? '💊' : c.icon === 'sport' ? '🏃' : c.icon === 'entertain' ? '🎮' : c.icon === 'travel' ? '✈️' : c.icon === 'social' ? '🧧' : c.icon === 'transfer' ? '🔄' : '📦')}</div>
               <div className={`text-[10px] leading-tight ${activeCat === c.key ? 'text-brand font-medium' : 'text-ink-secondary'}`}>{c.label}</div>
               <div className="text-[9px] text-ink-tertiary">{catCounts[c.key]}</div>
             </button>
@@ -537,7 +568,7 @@ export default function TransactionList({ transactions, overrides, memory = {}, 
           <div className="flex items-center gap-1.5 mb-2">
             <input type="text" placeholder="搜索名称、产品、商家或明细..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)}
               className="flex-1 px-2.5 py-1.5 rounded-lg border border-gray-200 bg-gray-50 text-xs outline-none focus:border-brand min-w-0" />
-            <button onClick={() => setShowAdd(true)} className="text-[11px] px-2 py-1.5 rounded-md bg-brand text-white flex-shrink-0">+添加</button>
+            <button onClick={() => setShowAdd(true)} className="text-[11px] px-2 py-1.5 rounded-md bg-brand text-white flex-shrink-0">+添加支出</button>
             <button onClick={() => batchMode ? clearSelect() : setBatchMode(true)}
               className={`text-[11px] px-2 py-1.5 rounded-md flex-shrink-0 ${batchMode ? 'bg-amber-500 text-white' : 'border border-gray-200 text-ink-tertiary'}`}>
               {batchMode ? '取消' : '多选'}
@@ -567,7 +598,9 @@ export default function TransactionList({ transactions, overrides, memory = {}, 
         {grouped.map(group => (
           <div key={group.cat.key} className="bg-white dark:bg-surface-card-dark rounded-xl overflow-hidden">
             <div className="flex items-center gap-2.5 px-3 py-2.5 border-b border-gray-100 bg-gray-50/50">
-              <CatIcon iconKey={group.cat.icon} color={group.cat.color} bg={group.cat.bg} size={30} />
+              {group.cat.emoji
+                ? <span className="w-[30px] h-[30px] rounded-lg flex items-center justify-center text-base" style={{ backgroundColor: group.cat.bg }}>{group.cat.emoji}</span>
+                : <CatIcon iconKey={group.cat.icon} color={group.cat.color} bg={group.cat.bg} size={30} />}
               <div className="flex-1">
                 <span className="text-sm font-medium text-ink dark:text-white">{group.cat.label}</span>
                 <span className="text-[11px] text-ink-tertiary ml-2">{group.txs.length}笔</span>
@@ -577,19 +610,19 @@ export default function TransactionList({ transactions, overrides, memory = {}, 
             {group.txs.map(tx => (
               <div key={tx.idx} data-testid={`transaction-row-${tx.idx}`}
                 className="flex items-center gap-2 px-3 py-2 border-b border-gray-50 last:border-0 hover:bg-gray-50/50 transition-all">
-                {batchMode && (
+                {batchMode && tx.isExpense && (
                   <input type="checkbox" checked={selected.has(tx.idx)} onChange={() => toggleSelect(tx.idx)}
                     className="w-3.5 h-3.5 rounded flex-shrink-0" style={{ accentColor: '#534ab7' }} />
                 )}
-                <button onClick={() => batchMode ? toggleSelect(tx.idx) : setEditingIdx(tx.idx)}
+                <button onClick={() => batchMode ? (tx.isExpense && toggleSelect(tx.idx)) : setEditingIdx(tx.idx)}
                   className="flex-1 flex items-center gap-2 text-left min-w-0">
                   <div className="w-0.5 h-6 rounded-full flex-shrink-0" style={{ backgroundColor: group.cat.color + '50' }} />
                   <div className="flex-1 min-w-0">
                     <div className="text-[13px] font-medium leading-snug text-ink dark:text-white whitespace-pre-wrap break-words">{tx.name || '未知'}</div>
                     {(tx.productName || tx.merchant) && (
                       <div className="mt-1 space-y-0.5 text-[11px] leading-relaxed text-ink-secondary dark:text-gray-300">
-                        {tx.productName ? <div className="whitespace-pre-wrap break-words"><span className="text-ink-tertiary">产品：</span>{tx.productName}</div> : null}
-                        {tx.merchant ? <div className="whitespace-pre-wrap break-words"><span className="text-ink-tertiary">商家：</span>{tx.merchant}</div> : null}
+                        {tx.productName ? <div className="whitespace-pre-wrap break-words"><span className="text-ink-tertiary">{tx.isExpense ? '产品：' : '项目：'}</span>{tx.productName}</div> : null}
+                        {tx.merchant ? <div className="whitespace-pre-wrap break-words"><span className="text-ink-tertiary">{tx.isExpense ? '商家：' : '对方：'}</span>{tx.merchant}</div> : null}
                       </div>
                     )}
                     {tx.details ? (
@@ -611,7 +644,9 @@ export default function TransactionList({ transactions, overrides, memory = {}, 
                       </div>
                     )}
                   </div>
-                  <span className="text-[13px] font-medium text-red-500 flex-shrink-0">-{fmtMoney(tx.amount)}</span>
+                  <span className={`text-[13px] font-medium flex-shrink-0 ${tx.isExpense ? 'text-red-500' : 'text-emerald-600'}`}>
+                    {tx.isExpense ? '-' : '+'}{fmtMoney(tx.amount)}
+                  </span>
                 </button>
               </div>
             ))}
@@ -624,7 +659,9 @@ export default function TransactionList({ transactions, overrides, memory = {}, 
       {/* Modals */}
       {editingTx && !batchEdit && (
         <EditModal txName={editingTx.name} txMerchant={editingTx.merchant} txProductName={editingTx.productName} txDetails={editingTx.details}
-          currentAmount={editingTx.amount} count={1} mergeMemory={editingTx.mergeMemory} currentCatKey={editingTx.catKey} currentSubKey={editingTx.subKey}
+          currentAmount={editingTx.amount} direction={editingTx.direction} count={1} mergeMemory={editingTx.mergeMemory}
+          currentCatKey={editingTx.isExpense ? editingTx.catKey : CATEGORIES[0].key}
+          currentSubKey={editingTx.isExpense ? editingTx.subKey : CATEGORIES[0].subs[0]?.key}
           currentTags={editingTx.tags} onSave={handleSaveSingle} onDelete={handleDeleteSingle} onClose={() => setEditingIdx(null)} />
       )}
       {batchEdit && (
