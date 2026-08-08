@@ -1,0 +1,8 @@
+.codex_tmp
+outputs
+budget-app
+历史账单
+tests
+docs
+.env*
+*.log

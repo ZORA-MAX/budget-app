@@ -7,3 +7,6 @@ dist
 历史账单/
 budget-analysis-*.json
 .env*
+.DS_Store
+.codex_tmp/
+outputs/
