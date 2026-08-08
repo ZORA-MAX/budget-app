@@ -1,8 +1,8 @@
 # Backup version
 
 - Backup date: 2026-08-08
-- Web app source commit: `418d335d192a2da145bc18588572c2e441de9de1`
-- GitHub Pages deployment commit: `79b66db62c56b1c7469f26c8ad274d3cffef3682`
+- Web app feature source commit: `db8f639`
+- GitHub Pages deployment commit: `774a8d0`
 - Live URL: <https://zora-max.github.io/budget-app/>
 - Web app validation: 34 automated tests passed; portable relative-path production build completed.
 - Excel export: added a prominent download button and a fixed six-sheet workbook matching the adjusted May format (`完整流水`, `月度收支汇总`, `支出分类汇总`, `账单原始字段`, `截图识别明细`, `合并原始明细`).
