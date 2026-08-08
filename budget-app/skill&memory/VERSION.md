@@ -1,8 +1,8 @@
 # Backup version
 
 - Backup date: 2026-08-08
-- Web app feature source commit: `db8f639`
-- GitHub Pages deployment commit: `774a8d0`
+- Web app feature source commit: `5164f69`
+- GitHub Pages deployment commit: `69e4108`
 - Live URL: <https://zora-max.github.io/budget-app/>
 - Web app validation: 35 automated tests passed; portable relative-path production build completed.
 - Income editing: the former expense-only detail tab is now a unified `收支明细` editor. Income and refund rows support manual changes to name, counterparty, project, note, and amount; those edits update dashboard totals, the complete cashflow ledger, and exported Excel detail/summary sheets.
