@@ -1,10 +1,11 @@
 # Backup version
 
-- Backup date: 2026-08-08
-- Web app feature source commit: `5164f69`
-- GitHub Pages deployment commit: `69e4108`
+- Backup date: 2026-09-01
+- Web app feature source commit: `7dfe0fb`
+- GitHub Pages deployment commit: `6209e15`
 - Live URL: <https://zora-max.github.io/budget-app/>
-- Web app validation: 35 automated tests passed; portable relative-path production build completed.
+- Web app validation: 36 automated tests passed; desktop and mobile-width interaction checks passed; portable relative-path production build completed.
+- Transaction flow editing: individual records can now switch among 支出、收入、退款、资金流转 and 其他; the change updates sidebar grouping, amount direction, dashboard totals, history summaries, complete cashflow details, and Excel exports.
 - Income editing: the former expense-only detail tab is now a unified `收支明细` editor. Income and refund rows support manual changes to name, counterparty, project, note, and amount; those edits update dashboard totals, the complete cashflow ledger, and exported Excel detail/summary sheets.
 - Excel export: added a prominent download button and a fixed six-sheet workbook matching the adjusted May format (`完整流水`, `月度收支汇总`, `支出分类汇总`, `账单原始字段`, `截图识别明细`, `合并原始明细`).
 - Excel QA: verified 35-column detail format, 32-column raw-field format, income/refund/expense/net-cashflow totals, PDD item names, screenshot evidence, merged-transaction details, and zero spreadsheet errors.
