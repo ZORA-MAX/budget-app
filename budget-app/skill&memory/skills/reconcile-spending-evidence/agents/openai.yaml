@@ -1,0 +1,4 @@
+interface:
+  display_name: "完整收支与退款对账"
+  short_description: "整合全部收入、支出与退款，严格冲销重复消费并输出网页可用账单"
+  default_prompt: "使用 $reconcile-spending-evidence 整合我的全部收入、支出和退款，匹配退货冲销并输出网页可导入的 Excel。"

@@ -1,0 +1,4 @@
+interface:
+  display_name: "应用消费分类记忆"
+  short_description: "学习账单或网页备份中的分类调整，并复用完整收支与退款规则"
+  default_prompt: "使用 $apply-budget-memory 学习我调整后的账单或网页备份，并把可复用规则应用到下一期账单。"
