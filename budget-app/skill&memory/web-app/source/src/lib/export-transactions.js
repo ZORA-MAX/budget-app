@@ -1,7 +1,7 @@
 import * as XLSX from 'xlsx'
 import { resolveClassification } from './classifier.js'
 import { getCategoryByKey, TAG_MAP } from './categories.js'
-import { txKey } from './csv-parser.js'
+import { getTransactionDirection, txKey } from './csv-parser.js'
 
 const SOURCE_LABELS = {
   wechat: '微信',
@@ -63,6 +63,7 @@ function effectiveTransaction(tx, override) {
     productName: override?.editedProductName ?? tx.productName ?? '',
     details: override?.editedDetails ?? tx.details ?? '',
     amount: Number.isFinite(override?.editedAmount) ? override.editedAmount : tx.amount,
+    direction: getTransactionDirection(tx, override),
   }
 }
 

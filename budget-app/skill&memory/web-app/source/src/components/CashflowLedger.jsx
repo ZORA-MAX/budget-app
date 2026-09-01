@@ -1,4 +1,4 @@
-import { fmtMoney, txKey } from '../lib/csv-parser'
+import { fmtMoney, getTransactionDirection, txKey } from '../lib/csv-parser'
 
 const DIRECTION = {
   expense: { label: '支出', className: 'bg-red-50 text-red-600' },
@@ -32,7 +32,7 @@ export default function CashflowLedger({ transactions, overrides = {} }) {
             details: override?.editedDetails ?? originalTx.details,
             amount: Number.isFinite(override?.editedAmount) ? override.editedAmount : originalTx.amount,
           }
-          const direction = tx.direction || 'expense'
+          const direction = getTransactionDirection(originalTx, override)
           const meta = DIRECTION[direction] || DIRECTION.other
           const product = tx.productName || (direction === 'expense' ? '具体商品待截图补全' : tx.name || '—')
           return (

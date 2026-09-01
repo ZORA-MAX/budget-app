@@ -12,7 +12,7 @@ import {
   saveOverrides,
 } from '../lib/storage'
 import { createTaxonomySnapshot, restoreTaxonomySnapshot } from '../lib/categories'
-import { fmtMoney, txKey } from '../lib/csv-parser'
+import { fmtMoney, getTransactionDirection, txKey } from '../lib/csv-parser'
 import { summarizeByCategory } from '../lib/classifier'
 import Dashboard from '../components/Dashboard'
 
@@ -75,9 +75,11 @@ export default function History({ refreshKey }) {
         if (!data) return [key, null]
         const total = data.reduce((sum, tx) => {
           const override = ov[txKey(tx)]
+          if (getTransactionDirection(tx, override) !== 'expense' || tx.isEffective === false) return sum
           return sum + (Number.isFinite(override?.editedAmount) ? override.editedAmount : tx.amount)
         }, 0)
-        const byCat = summarizeByCategory(data, ov, learnedMemory)
+        const expenseTransactions = data.filter(tx => getTransactionDirection(tx, ov[txKey(tx)]) === 'expense' && tx.isEffective !== false)
+        const byCat = summarizeByCategory(expenseTransactions, ov, learnedMemory)
         return [key, { total, count: data.length, topCat: byCat[0]?.cat, byCat }]
       }))
       if (!active) return

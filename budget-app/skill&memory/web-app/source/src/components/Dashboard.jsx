@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { resolveClassification, summarizeByCategory } from '../lib/classifier'
-import { groupByMonth, fmtMoney, txKey, isExpenseTransaction, isIncomeTransaction, isRefundTransaction } from '../lib/csv-parser'
+import { groupByMonth, fmtMoney, getTransactionDirection, txKey } from '../lib/csv-parser'
 import CategoryChart from './CategoryChart'
 import CategoryBreakdown from './CategoryBreakdown'
 import TopTransactions from './TopTransactions'
@@ -19,24 +19,24 @@ export default function Dashboard({ transactions, overrides = {}, memory = {}, o
   const [exporting, setExporting] = useState(false)
 
   const txs = useMemo(() => monthlyMap[selectedMonth] || [], [monthlyMap, selectedMonth])
-  const expenseTxs = useMemo(() => txs.filter(isExpenseTransaction), [txs])
+  const expenseTxs = useMemo(() => txs.filter(tx => getTransactionDirection(tx, overrides[txKey(tx)]) === 'expense' && tx.isEffective !== false), [txs, overrides])
   const byCat = useMemo(() => summarizeByCategory(expenseTxs, overrides, memory), [expenseTxs, overrides, memory])
   const total = useMemo(() => expenseTxs.reduce((sum, tx) => {
     const override = overrides[txKey(tx)]
     return sum + (Number.isFinite(override?.editedAmount) ? override.editedAmount : tx.amount)
   }, 0), [expenseTxs, overrides])
-  const incomeTotal = useMemo(() => txs.filter(isIncomeTransaction).reduce((sum, tx) => {
+  const incomeTotal = useMemo(() => txs.filter(tx => getTransactionDirection(tx, overrides[txKey(tx)]) === 'income' && tx.isEffective !== false).reduce((sum, tx) => {
     const override = overrides[txKey(tx)]
     return sum + (Number.isFinite(override?.editedAmount) ? override.editedAmount : tx.amount)
   }, 0), [txs, overrides])
-  const refundTotal = useMemo(() => txs.filter(isRefundTransaction).reduce((sum, tx) => {
+  const refundTotal = useMemo(() => txs.filter(tx => getTransactionDirection(tx, overrides[txKey(tx)]) === 'refund' && tx.isEffective !== false).reduce((sum, tx) => {
     const override = overrides[txKey(tx)]
     return sum + (Number.isFinite(override?.editedAmount) ? override.editedAmount : tx.amount)
   }, 0), [txs, overrides])
   const netCashflow = incomeTotal + refundTotal - total
 
   const prevKey = monthKeys[monthKeys.indexOf(selectedMonth) + 1]
-  const prevTotal = prevKey ? (monthlyMap[prevKey] || []).filter(isExpenseTransaction).reduce((sum, tx) => {
+  const prevTotal = prevKey ? (monthlyMap[prevKey] || []).filter(tx => getTransactionDirection(tx, overrides[txKey(tx)]) === 'expense' && tx.isEffective !== false).reduce((sum, tx) => {
     const override = overrides[txKey(tx)]
     return sum + (Number.isFinite(override?.editedAmount) ? override.editedAmount : tx.amount)
   }, 0) : 0
@@ -79,7 +79,7 @@ export default function Dashboard({ transactions, overrides = {}, memory = {}, o
   const monthlyTotals = useMemo(() =>
     monthKeys.slice().reverse().map(k => ({
       label: k.split('-')[1] + '月',
-      total: (monthlyMap[k] || []).filter(isExpenseTransaction).reduce((sum, tx) => {
+      total: (monthlyMap[k] || []).filter(tx => getTransactionDirection(tx, overrides[txKey(tx)]) === 'expense' && tx.isEffective !== false).reduce((sum, tx) => {
         const override = overrides[txKey(tx)]
         return sum + (Number.isFinite(override?.editedAmount) ? override.editedAmount : tx.amount)
       }, 0)

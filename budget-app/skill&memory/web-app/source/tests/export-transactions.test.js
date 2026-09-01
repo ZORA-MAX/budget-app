@@ -106,6 +106,32 @@ test('applies edited income fields and amount to detail and cashflow summary', (
   }])
 })
 
+test('applies an edited transaction direction to exports and cashflow totals', () => {
+  const transfer = {
+    date: new Date(2026, 6, 26, 10, 15),
+    direction: 'transfer',
+    name: '信用卡还款',
+    amount: 1200,
+    source: 'bank',
+  }
+  const rows = buildTransactionExportRows([transfer], {
+    [txKey(transfer)]: {
+      editedDirection: 'expense',
+      catKey: 'daily',
+      subKey: 'household',
+      tags: ['rigid'],
+    },
+  })
+
+  assert.equal(rows[0].类型, '支出')
+  assert.equal(rows[0].流入金额, 0)
+  assert.equal(rows[0].流出金额, 1200)
+  assert.equal(rows[0].净额, -1200)
+  assert.deepEqual(buildCashflowSummaryRows(rows), [{
+    月份: '2026-07', 收入: 0, 退款: 0, 支出: 1200, 净现金流: -1200, 流水笔数: 1,
+  }])
+})
+
 test('creates detail and summary worksheets', () => {
   const workbook = buildExportWorkbook(transactions)
   assert.deepEqual(workbook.SheetNames, EXPORT_SHEET_NAMES)

@@ -392,6 +392,10 @@ export function isRefundTransaction(tx) {
   return tx.direction === 'refund' && tx.isEffective !== false
 }
 
+export function getTransactionDirection(tx, override) {
+  return override?.editedDirection || tx?.direction || 'expense'
+}
+
 export function groupByMonth(txs) {
   const map = {}
   for (const tx of txs) {

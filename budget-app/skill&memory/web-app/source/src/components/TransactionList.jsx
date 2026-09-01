@@ -15,7 +15,7 @@ import {
   getDefaultTags,
   toggleExclusiveTag,
 } from '../lib/categories'
-import { fmtMoney, txKey } from '../lib/csv-parser'
+import { fmtMoney, getTransactionDirection, txKey } from '../lib/csv-parser'
 import CatIcon from './CatIcon'
 
 function PencilIcon() {
@@ -40,8 +40,22 @@ const FLOW_GROUPS = {
   other: { key: 'cashflow-other', label: '其他流水', emoji: '🧾', color: '#64748b', bg: '#f8fafc' },
 }
 
+const DIRECTION_OPTIONS = [
+  { value: 'expense', label: '支出', emoji: '💸' },
+  { value: 'income', label: '收入', emoji: '💰' },
+  { value: 'refund', label: '退款', emoji: '↩️' },
+  { value: 'transfer', label: '资金流转', emoji: '🔄' },
+  { value: 'other', label: '其他', emoji: '🧾' },
+]
+
 function directionLabel(direction) {
-  return direction === 'income' ? '收入' : direction === 'refund' ? '退款' : direction === 'expense' ? '支出' : '交易'
+  return DIRECTION_OPTIONS.find(option => option.value === direction)?.label || '交易'
+}
+
+function directionAmountMeta(direction) {
+  if (direction === 'expense') return { prefix: '-', className: 'text-red-500' }
+  if (direction === 'income' || direction === 'refund') return { prefix: '+', className: 'text-emerald-600' }
+  return { prefix: '', className: 'text-ink dark:text-white' }
 }
 
 function TaxonomyEditor({ editor, onSubmit, onClose }) {
@@ -87,12 +101,13 @@ function EditModal({ txName, txMerchant, txProductName, txDetails, currentAmount
   const [productName, setProductName] = useState(txProductName || '')
   const [details, setDetails] = useState(txDetails || '')
   const [amount, setAmount] = useState(currentAmount == null ? '' : String(currentAmount))
+  const [transactionDirection, setTransactionDirection] = useState(direction)
   const [taxonomyEditor, setTaxonomyEditor] = useState(null)
   const [, refreshTaxonomy] = useState(0)
   const cat = getCategoryByKey(catKey)
   const isBatch = count > 1
-  const isExpense = isBatch || direction === 'expense'
-  const flowLabel = directionLabel(direction)
+  const isExpense = isBatch || transactionDirection === 'expense'
+  const flowLabel = directionLabel(transactionDirection)
   const parsedAmount = Number.parseFloat(amount)
   const canSave = isBatch || (name.trim() && Number.isFinite(parsedAmount) && parsedAmount > 0)
   const toggleTag = k => setTags(previous => toggleExclusiveTag(previous, k))
@@ -135,6 +150,7 @@ function EditModal({ txName, txMerchant, txProductName, txDetails, currentAmount
     onSave({
       ...(isExpense ? { catKey, subKey, tags } : {}),
       ...(isBatch ? {} : {
+        editedDirection: transactionDirection,
         editedName: name.trim(),
         editedMerchant: merchant.trim(),
         editedProductName: productName.trim(),
@@ -180,6 +196,23 @@ function EditModal({ txName, txMerchant, txProductName, txDetails, currentAmount
                 </div>
               ) : (
                 <div className="space-y-4">
+                  <fieldset>
+                    <legend className="block text-sm font-medium text-ink-secondary mb-2">交易属性</legend>
+                    <div data-testid="edit-transaction-direction" className="grid grid-cols-3 sm:grid-cols-5 gap-2">
+                      {DIRECTION_OPTIONS.map(option => (
+                        <button key={option.value} type="button" onClick={() => {
+                          setTransactionDirection(option.value)
+                          if (option.value === 'expense' && tags.length === 0) setTags(getDefaultTags(catKey, subKey))
+                        }}
+                          aria-pressed={transactionDirection === option.value}
+                          className={`min-h-11 rounded-xl border px-2 py-2 text-xs font-medium transition-colors ${transactionDirection === option.value ? 'border-brand bg-brand-faint text-brand shadow-sm' : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-ink-secondary hover:border-brand/40'}`}>
+                          <span className="block text-base mb-0.5" aria-hidden="true">{option.emoji}</span>
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="text-[11px] text-ink-tertiary mt-2">保存后会同步调整左侧分组、金额方向和收支统计。</p>
+                  </fieldset>
                   <label className="block">
                     <span className="block text-sm font-medium text-ink-secondary mb-2">{flowLabel}名称 <span className="text-red-500">*</span></span>
                     <input data-testid="edit-transaction-name" value={name} onChange={e => setName(e.target.value)} placeholder={isExpense ? '例如：周末家庭聚餐' : '例如：工资、报销、二手交易收入'}
@@ -450,7 +483,7 @@ export default function TransactionList({ transactions, overrides, memory = {}, 
         details: ov?.editedDetails ?? tx.details ?? '',
         amount: Number.isFinite(ov?.editedAmount) ? ov.editedAmount : tx.amount,
       }
-      const direction = tx.direction || 'expense'
+      const direction = getTransactionDirection(tx, ov)
       if (direction !== 'expense') {
         const cat = FLOW_GROUPS[direction] || FLOW_GROUPS.other
         return {
@@ -520,8 +553,10 @@ export default function TransactionList({ transactions, overrides, memory = {}, 
       productName: payload.editedProductName,
       details: payload.editedDetails,
       amount: payload.editedAmount,
+      direction: payload.editedDirection,
     }
-    onOverride(key, { ...overrides[key], ...payload }, editingTx.isExpense ? effectiveForMemory : null)
+    onOverride(key, { ...overrides[key], ...payload }, payload.editedDirection === 'expense' ? effectiveForMemory : null)
+    setActiveCat(payload.editedDirection === 'expense' ? payload.catKey : FLOW_GROUPS[payload.editedDirection]?.key || FLOW_GROUPS.other.key)
     setEditingIdx(null)
   }
   const handleDeleteSingle = () => { if (editingIdx === null) return; onDelete(txKey(transactions[editingIdx])); setEditingIdx(null) }
@@ -644,8 +679,8 @@ export default function TransactionList({ transactions, overrides, memory = {}, 
                       </div>
                     )}
                   </div>
-                  <span className={`text-[13px] font-medium flex-shrink-0 ${tx.isExpense ? 'text-red-500' : 'text-emerald-600'}`}>
-                    {tx.isExpense ? '-' : '+'}{fmtMoney(tx.amount)}
+                  <span className={`text-[13px] font-medium flex-shrink-0 ${directionAmountMeta(tx.direction).className}`}>
+                    {directionAmountMeta(tx.direction).prefix}{fmtMoney(tx.amount)}
                   </span>
                 </button>
               </div>
