@@ -58,6 +58,25 @@ function directionAmountMeta(direction) {
   return { prefix: '', className: 'text-ink dark:text-white' }
 }
 
+function DirectionPicker({ value, onChange }) {
+  return (
+    <fieldset className="mb-5 rounded-xl bg-gray-50/80 dark:bg-gray-900/40 border border-gray-100 dark:border-gray-800 p-3">
+      <legend className="px-1 text-sm font-medium text-ink-secondary">交易属性</legend>
+      <div data-testid="edit-transaction-direction" className="grid grid-cols-3 sm:grid-cols-5 gap-2 mt-1">
+        {DIRECTION_OPTIONS.map(option => (
+          <button key={option.value} type="button" onClick={() => onChange(option.value)}
+            aria-pressed={value === option.value}
+            className={`min-h-11 rounded-xl border px-2 py-2 text-xs font-medium transition-colors ${value === option.value ? 'border-brand bg-brand-faint text-brand shadow-sm' : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-ink-secondary hover:border-brand/40'}`}>
+            <span className="block text-base mb-0.5" aria-hidden="true">{option.emoji}</span>
+            {option.label}
+          </button>
+        ))}
+      </div>
+      <p className="text-[11px] text-ink-tertiary mt-2">支出、收入与资金流转等属性会同步影响左侧分组、金额方向和收支统计。</p>
+    </fieldset>
+  )
+}
+
 function TaxonomyEditor({ editor, onSubmit, onClose }) {
   const [value, setValue] = useState(editor.initialValue || '')
   const label = TAXONOMY_LABELS[editor.type]
@@ -111,6 +130,10 @@ function EditModal({ txName, txMerchant, txProductName, txDetails, currentAmount
   const parsedAmount = Number.parseFloat(amount)
   const canSave = isBatch || (name.trim() && Number.isFinite(parsedAmount) && parsedAmount > 0)
   const toggleTag = k => setTags(previous => toggleExclusiveTag(previous, k))
+  const handleDirectionChange = nextDirection => {
+    setTransactionDirection(nextDirection)
+    if (nextDirection === 'expense' && tags.length === 0) setTags(getDefaultTags(catKey, subKey))
+  }
   const openTaxonomyEditor = (type, mode, item = null) => {
     setTaxonomyEditor({ type, mode, key: item?.key, initialValue: item?.label || '' })
   }
@@ -182,7 +205,7 @@ function EditModal({ txName, txMerchant, txProductName, txDetails, currentAmount
         </div>
 
         <div className="overflow-y-auto flex-1 min-h-0 p-4 lg:p-6">
-          <div className={`grid grid-cols-1 gap-4 lg:gap-5 ${isExpense ? 'lg:grid-cols-[minmax(320px,0.95fr)_minmax(460px,1.55fr)_minmax(240px,0.8fr)]' : 'max-w-2xl mx-auto'}`}>
+          <div className={`grid grid-cols-1 gap-4 lg:gap-5 ${isExpense ? 'lg:grid-cols-[minmax(320px,0.95fr)_minmax(460px,1.55fr)_minmax(240px,0.8fr)]' : 'lg:grid-cols-[minmax(320px,0.9fr)_minmax(460px,1.25fr)] max-w-5xl mx-auto'}`}>
             <section className="rounded-2xl bg-gray-50/80 dark:bg-gray-900/30 border border-gray-100 dark:border-gray-800 p-4 min-[580px]:p-2.5 lg:p-5">
               <div className="flex items-center gap-2 mb-4">
                 <span className="w-6 h-6 rounded-full bg-brand text-white text-xs font-semibold flex items-center justify-center">1</span>
@@ -196,23 +219,6 @@ function EditModal({ txName, txMerchant, txProductName, txDetails, currentAmount
                 </div>
               ) : (
                 <div className="space-y-4">
-                  <fieldset>
-                    <legend className="block text-sm font-medium text-ink-secondary mb-2">交易属性</legend>
-                    <div data-testid="edit-transaction-direction" className="grid grid-cols-3 sm:grid-cols-5 gap-2">
-                      {DIRECTION_OPTIONS.map(option => (
-                        <button key={option.value} type="button" onClick={() => {
-                          setTransactionDirection(option.value)
-                          if (option.value === 'expense' && tags.length === 0) setTags(getDefaultTags(catKey, subKey))
-                        }}
-                          aria-pressed={transactionDirection === option.value}
-                          className={`min-h-11 rounded-xl border px-2 py-2 text-xs font-medium transition-colors ${transactionDirection === option.value ? 'border-brand bg-brand-faint text-brand shadow-sm' : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-ink-secondary hover:border-brand/40'}`}>
-                          <span className="block text-base mb-0.5" aria-hidden="true">{option.emoji}</span>
-                          {option.label}
-                        </button>
-                      ))}
-                    </div>
-                    <p className="text-[11px] text-ink-tertiary mt-2">保存后会同步调整左侧分组、金额方向和收支统计。</p>
-                  </fieldset>
                   <label className="block">
                     <span className="block text-sm font-medium text-ink-secondary mb-2">{flowLabel}名称 <span className="text-red-500">*</span></span>
                     <input data-testid="edit-transaction-name" value={name} onChange={e => setName(e.target.value)} placeholder={isExpense ? '例如：周末家庭聚餐' : '例如：工资、报销、二手交易收入'}
@@ -266,14 +272,16 @@ function EditModal({ txName, txMerchant, txProductName, txDetails, currentAmount
               )}
             </section>
 
-            {isExpense && <section className="rounded-2xl bg-white dark:bg-surface-card-dark border border-gray-200/80 dark:border-gray-700 p-4 min-[580px]:p-2.5 lg:p-5 min-w-0">
+            <section className="rounded-2xl bg-white dark:bg-surface-card-dark border border-gray-200/80 dark:border-gray-700 p-4 min-[580px]:p-2.5 lg:p-5 min-w-0">
               <div className="flex items-center gap-2 mb-4">
                 <span className="w-6 h-6 rounded-full bg-brand text-white text-xs font-semibold flex items-center justify-center">2</span>
                 <div>
                   <h3 className="text-base font-semibold text-ink dark:text-white">消费分类</h3>
-                  <p className="text-xs text-ink-tertiary mt-0.5">先选一级分类，再选择对应子分类</p>
+                  <p className="text-xs text-ink-tertiary mt-0.5">先选择交易属性；支出可继续选择一级与子分类</p>
                 </div>
               </div>
+              {!isBatch && <DirectionPicker value={transactionDirection} onChange={handleDirectionChange} />}
+              {isExpense ? <>
               <div className="flex items-center justify-between gap-3 mb-3">
                 <p className="text-sm font-medium text-ink-secondary">一级分类</p>
                 <button type="button" data-testid="add-primary-category" onClick={() => openTaxonomyEditor('category', 'add')}
@@ -327,7 +335,14 @@ function EditModal({ txName, txMerchant, txProductName, txDetails, currentAmount
                 + 添加子分类
               </button>
               </div>
-            </section>}
+              </> : (
+                <div className="rounded-xl border border-dashed border-gray-200 dark:border-gray-700 bg-gray-50/70 dark:bg-gray-900/30 px-4 py-8 text-center">
+                  <div className="text-2xl mb-2">{DIRECTION_OPTIONS.find(option => option.value === transactionDirection)?.emoji || '🧾'}</div>
+                  <div className="text-sm font-medium text-ink dark:text-white">已选择{flowLabel}</div>
+                  <p className="text-xs text-ink-tertiary mt-1">该属性不需要设置消费一级分类和子分类。</p>
+                </div>
+              )}
+            </section>
 
             {isExpense && <section className="rounded-2xl bg-gray-50/80 dark:bg-gray-900/30 border border-gray-100 dark:border-gray-800 p-4 min-[580px]:p-2.5 lg:p-5">
               <div className="flex items-start justify-between gap-2 mb-4">
