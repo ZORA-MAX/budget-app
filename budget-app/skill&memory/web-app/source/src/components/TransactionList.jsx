@@ -1,3 +1,4 @@
+import { consumptionAmount, transactionOverride } from '../lib/financial-metrics'
 import { useState, useMemo } from 'react'
 import ReactDOM from 'react-dom'
 import { resolveClassification } from '../lib/classifier'
@@ -489,7 +490,7 @@ export default function TransactionList({ transactions, overrides, memory = {}, 
   const classified = useMemo(() =>
     transactions.map((tx, i) => {
       const key = txKey(tx)
-      const ov = overrides[key]
+      const ov = transactionOverride(tx, overrides)
       const effectiveTx = {
         ...tx,
         name: ov?.editedName ?? tx.name,
@@ -497,6 +498,9 @@ export default function TransactionList({ transactions, overrides, memory = {}, 
         productName: ov?.editedProductName ?? tx.productName ?? '',
         details: ov?.editedDetails ?? tx.details ?? '',
         amount: Number.isFinite(ov?.editedAmount) ? ov.editedAmount : tx.amount,
+        displayNetConsumption: consumptionAmount(tx, ov),
+        isAutoAnnotated: !!ov?.annotationSource && ov.annotationSource !== 'manual',
+        netReviewed: Number.isFinite(tx.netConsumption) || Number.isFinite(ov?.netConsumption) || tx.includeInConsumption === false || tx.isEffective === false,
       }
       const direction = getTransactionDirection(tx, ov)
       if (direction !== 'expense') {
@@ -547,9 +551,10 @@ export default function TransactionList({ transactions, overrides, memory = {}, 
   const grouped = useMemo(() => {
     const m = {}
     for (const tx of filtered) {
-      if (!m[tx.catKey]) m[tx.catKey] = { cat: tx.cat, txs: [], total: 0 }
+      if (!m[tx.catKey]) m[tx.catKey] = { cat: tx.cat, txs: [], total: 0, netTotal: 0 }
       m[tx.catKey].txs.push(tx)
       m[tx.catKey].total += tx.amount
+      m[tx.catKey].netTotal += tx.displayNetConsumption
     }
     return Object.values(m).sort((a, b) => b.total - a.total)
   }, [filtered])
@@ -570,7 +575,7 @@ export default function TransactionList({ transactions, overrides, memory = {}, 
       amount: payload.editedAmount,
       direction: payload.editedDirection,
     }
-    onOverride(key, { ...overrides[key], ...payload }, payload.editedDirection === 'expense' ? effectiveForMemory : null)
+    onOverride(key, { ...transactionOverride(originalTx, overrides), ...payload }, payload.editedDirection === 'expense' ? effectiveForMemory : null)
     setActiveCat(payload.editedDirection === 'expense' ? payload.catKey : FLOW_GROUPS[payload.editedDirection]?.key || FLOW_GROUPS.other.key)
     setEditingIdx(null)
   }
@@ -579,7 +584,7 @@ export default function TransactionList({ transactions, overrides, memory = {}, 
     for (const i of selected) {
       const tx = transactions[i]
       const key = txKey(tx)
-      onOverride(key, { ...overrides[key], ...payload }, tx)
+      onOverride(key, { ...transactionOverride(tx, overrides), ...payload }, tx)
     }
     setBatchEdit(false)
     clearSelect()
@@ -655,7 +660,7 @@ export default function TransactionList({ transactions, overrides, memory = {}, 
                 <span className="text-sm font-medium text-ink dark:text-white">{group.cat.label}</span>
                 <span className="text-[11px] text-ink-tertiary ml-2">{group.txs.length}笔</span>
               </div>
-              <span className="text-sm font-semibold">{fmtMoney(group.total)}</span>
+              <div className="text-right"><div className="text-sm font-semibold">原额 {fmtMoney(group.total)}</div>{group.txs.some(tx => tx.isExpense) && <div className="text-[11px] text-purple-700 mt-0.5">计入消费 {fmtMoney(group.netTotal)}</div>}</div>
             </div>
             {group.txs.map(tx => (
               <div key={tx.idx} data-testid={`transaction-row-${tx.idx}`}
@@ -684,7 +689,7 @@ export default function TransactionList({ transactions, overrides, memory = {}, 
                       <span className="text-[10px] text-ink-tertiary">{tx.date.getMonth()+1}/{tx.date.getDate()}</span>
                       <span className="text-[9px] px-1.5 py-0.5 rounded" style={{ backgroundColor: group.cat.bg, color: group.cat.color }}>{tx.sub?.label || '未分类'}</span>
                       {tx.tags?.slice(0,2).map(t => { const tag = TAG_MAP[t]; return tag ? <span key={t} className="text-[9px] px-1 py-0.5 rounded" style={{ backgroundColor: tag.bg, color: tag.color }}>{tag.label}</span> : null })}
-                      {tx.isOverridden && <span className="text-[9px] px-1 py-0.5 rounded bg-amber-50 text-amber-600">手动</span>}
+                      {tx.isOverridden && <span className="text-[9px] px-1 py-0.5 rounded bg-amber-50 text-amber-600">{tx.isAutoAnnotated ? '自动标注' : '手动'}</span>}
                       {!tx.isOverridden && tx.classificationSource === 'memory' && <span className="text-[9px] px-1 py-0.5 rounded bg-purple-50 text-purple-600">记忆</span>}
                       {tx.mergeMemory && <span className="text-[9px] px-1 py-0.5 rounded bg-purple-50 text-purple-600">🧠 合并 {tx.mergeMemory.count} 笔</span>}
                     </div>
@@ -695,7 +700,8 @@ export default function TransactionList({ transactions, overrides, memory = {}, 
                     )}
                   </div>
                   <span className={`text-[13px] font-medium flex-shrink-0 ${directionAmountMeta(tx.direction).className}`}>
-                    {directionAmountMeta(tx.direction).prefix}{fmtMoney(tx.amount)}
+                    <span className="block text-right">原额 {directionAmountMeta(tx.direction).prefix}{fmtMoney(tx.amount)}</span>
+                    {tx.isExpense && <span className="block text-right text-[11px] text-purple-700 mt-1">{tx.netReviewed ? '净消费' : '消费（未核退款）'} {fmtMoney(tx.displayNetConsumption)}</span>}
                   </span>
                 </button>
               </div>

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { resolveClassification, summarizeByCategory } from '../lib/classifier'
-import { groupByMonth, fmtMoney, getTransactionDirection, txKey } from '../lib/csv-parser'
+import { groupByMonth, fmtMoney } from '../lib/csv-parser'
 import CategoryChart from './CategoryChart'
 import CategoryBreakdown from './CategoryBreakdown'
 import TopTransactions from './TopTransactions'
@@ -10,6 +10,7 @@ import { MiniAIInsight } from './AISummary'
 import TransactionList from './TransactionList'
 import DimensionBar from './DimensionBar'
 import CashflowLedger from './CashflowLedger'
+import { consumptionAmount, financialMetrics, transactionOverride } from '../lib/financial-metrics'
 
 export default function Dashboard({ transactions, overrides = {}, memory = {}, onOverride, onDelete, onAdd }) {
   const monthlyMap = useMemo(() => groupByMonth(transactions), [transactions])
@@ -19,28 +20,21 @@ export default function Dashboard({ transactions, overrides = {}, memory = {}, o
   const [exporting, setExporting] = useState(false)
 
   const txs = useMemo(() => monthlyMap[selectedMonth] || [], [monthlyMap, selectedMonth])
-  const expenseTxs = useMemo(() => txs.filter(tx => getTransactionDirection(tx, overrides[txKey(tx)]) === 'expense' && tx.isEffective !== false), [txs, overrides])
+  const metrics = useMemo(() => financialMetrics(txs, overrides), [txs, overrides])
+  const expenseTxs = useMemo(() => txs.filter(tx => consumptionAmount(tx, transactionOverride(tx, overrides)) > 0), [txs, overrides])
   const byCat = useMemo(() => summarizeByCategory(expenseTxs, overrides, memory), [expenseTxs, overrides, memory])
-  const total = useMemo(() => expenseTxs.reduce((sum, tx) => {
-    const override = overrides[txKey(tx)]
-    return sum + (Number.isFinite(override?.editedAmount) ? override.editedAmount : tx.amount)
-  }, 0), [expenseTxs, overrides])
-  const incomeTotal = useMemo(() => txs.filter(tx => getTransactionDirection(tx, overrides[txKey(tx)]) === 'income' && tx.isEffective !== false).reduce((sum, tx) => {
-    const override = overrides[txKey(tx)]
-    return sum + (Number.isFinite(override?.editedAmount) ? override.editedAmount : tx.amount)
-  }, 0), [txs, overrides])
-  const refundTotal = useMemo(() => txs.filter(tx => getTransactionDirection(tx, overrides[txKey(tx)]) === 'refund' && tx.isEffective !== false).reduce((sum, tx) => {
-    const override = overrides[txKey(tx)]
-    return sum + (Number.isFinite(override?.editedAmount) ? override.editedAmount : tx.amount)
-  }, 0), [txs, overrides])
-  const netCashflow = incomeTotal + refundTotal - total
-
+  const total = metrics.consumption
+  const incomeTotal = metrics.income
+  const refundTotal = metrics.refund
+  const netCashflow = metrics.cashflow
+  const basisNotes = [...new Set(txs.map(tx => tx.consumptionBasis).filter(Boolean))]
   const prevKey = monthKeys[monthKeys.indexOf(selectedMonth) + 1]
-  const prevTotal = prevKey ? (monthlyMap[prevKey] || []).filter(tx => getTransactionDirection(tx, overrides[txKey(tx)]) === 'expense' && tx.isEffective !== false).reduce((sum, tx) => {
-    const override = overrides[txKey(tx)]
-    return sum + (Number.isFinite(override?.editedAmount) ? override.editedAmount : tx.amount)
-  }, 0) : 0
-  const diff = total - prevTotal
+  const prevTotal = prevKey ? financialMetrics(monthlyMap[prevKey] || [], overrides).consumption : 0
+  const [selectedYear, selectedMonthNumber] = selectedMonth.split('-').map(Number)
+  const previousCalendarMonth = new Date(selectedYear, selectedMonthNumber - 2, 1)
+  const expectedPreviousKey = `${previousCalendarMonth.getFullYear()}-${String(previousCalendarMonth.getMonth() + 1).padStart(2, '0')}`
+  const hasComparison = prevKey === expectedPreviousKey
+  const diff = hasComparison ? total - prevTotal : null
 
   const handleExcelExport = async () => {
     setExporting(true)
@@ -59,12 +53,11 @@ export default function Dashboard({ transactions, overrides = {}, memory = {}, o
   const tagTotals = useMemo(() => {
     const map = {}
     for (const tx of expenseTxs) {
-      const key = txKey(tx)
-      const ov = overrides[key]
+      const ov = transactionOverride(tx, overrides)
       const effectiveTx = {
         ...tx,
         name: ov?.editedName ?? tx.name,
-        amount: Number.isFinite(ov?.editedAmount) ? ov.editedAmount : tx.amount,
+        amount: consumptionAmount(tx, ov),
       }
       const { tags } = resolveClassification(effectiveTx, ov, memory)
       const share = effectiveTx.amount / (tags.length || 1)
@@ -79,10 +72,7 @@ export default function Dashboard({ transactions, overrides = {}, memory = {}, o
   const monthlyTotals = useMemo(() =>
     monthKeys.slice().reverse().map(k => ({
       label: k.split('-')[1] + '月',
-      total: (monthlyMap[k] || []).filter(tx => getTransactionDirection(tx, overrides[txKey(tx)]) === 'expense' && tx.isEffective !== false).reduce((sum, tx) => {
-        const override = overrides[txKey(tx)]
-        return sum + (Number.isFinite(override?.editedAmount) ? override.editedAmount : tx.amount)
-      }, 0)
+      total: financialMetrics(monthlyMap[k] || [], overrides).consumption
     })),
   [monthKeys, monthlyMap, overrides])
 
@@ -122,17 +112,23 @@ export default function Dashboard({ transactions, overrides = {}, memory = {}, o
           {refundTotal > 0 ? <div className="text-xs text-sky-600 mt-1">另有退款 {fmtMoney(refundTotal)}</div> : null}
         </div>
         <div className="bg-white dark:bg-surface-card-dark rounded-xl p-4">
-          <div className="text-xs text-ink-secondary">本月支出</div>
+          <div className="text-xs text-ink-secondary">{metrics.unreviewedCount ? '消费额（含未核退款）' : '原单净消费（按总账核验）'}</div>
           <div className="text-2xl font-semibold text-red-500 mt-1">{fmtMoney(total)}</div>
-          {prevTotal > 0 ? <div className={`text-xs mt-1 ${diff > 0 ? 'text-red-500' : 'text-green-600'}`}>{diff > 0 ? '↑' : '↓'} 比上月{diff > 0 ? '多' : '少'} {fmtMoney(Math.abs(diff))}</div> : null}
+          {hasComparison ? <div className={`text-xs mt-1 ${diff > 0 ? 'text-red-500' : 'text-green-600'}`}>{diff > 0 ? '↑' : '↓'} 比上月{diff > 0 ? '多' : '少'} {fmtMoney(Math.abs(diff))}</div> : null}
         </div>
         <div className="col-span-2 bg-white dark:bg-surface-card-dark rounded-xl p-4">
-          <div className="text-xs text-ink-secondary">本月净现金流</div>
+          <div className="text-xs text-ink-secondary">已记录净现金流</div>
           <div className={`text-3xl font-semibold mt-1 ${netCashflow >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>{fmtMoney(netCashflow)}</div>
           {expenseTxs.length > 0 ? <MiniAIInsight byCat={byCat} total={total} diff={diff} /> : null}
         </div>
       </div>
 
+      <div className="text-xs leading-relaxed text-ink-secondary rounded-xl bg-amber-50 border border-amber-100 p-3">
+        消费图表按导入总账的净额及已核验退款记录汇总，不计已标明的转账、还款本金；未匹配退款不自动分摊。原付款和退款仍完整保留在流水中。
+        {metrics.unreviewedCount > 0 && <span className="block mt-1">本月 {metrics.unreviewedCount} 笔尚无净额核验，暂沿用原记录金额；历史月份不自动重算。</span>}
+        {basisNotes.map((note, index) => <span key={index} className="block mt-1 font-medium">{note}</span>)}
+        <span className="block mt-1">原支出 {fmtMoney(metrics.grossExpense)} · 退款流入 {fmtMoney(refundTotal)}。现金流仅覆盖已导入流水，不代表银行账户余额。</span>
+      </div>
       {/* Tab switch */}
       <div className="grid grid-cols-3 gap-2">
         <button onClick={() => setActiveTab('overview')}
@@ -156,12 +152,12 @@ export default function Dashboard({ transactions, overrides = {}, memory = {}, o
           <DimensionBar tagTotals={tagTotals} total={total} />
           {monthlyTotals.length >= 2 && <TrendChart data={monthlyTotals} />}
           <div className="bg-white dark:bg-surface-card-dark rounded-xl p-4">
-            <div className="text-xs font-medium text-ink-secondary uppercase tracking-wider mb-3">支出分类</div>
+            <div className="text-xs font-medium text-ink-secondary uppercase tracking-wider mb-3">消费分类</div>
             <CategoryChart byCat={byCat} />
           </div>
           <CategoryBreakdown byCat={byCat} total={total} />
           <TopTransactions transactions={expenseTxs} overrides={overrides} memory={memory} />
-          <AISummary byCat={byCat} total={total} diff={diff} prevTotal={prevTotal} month={selectedMonth} />
+          <AISummary byCat={byCat} total={total} diff={diff} prevTotal={prevTotal} month={selectedMonth} unreviewedCount={metrics.unreviewedCount} />
         </>
       ) : activeTab === 'transactions' ? (
         <TransactionList transactions={txs} overrides={overrides} memory={memory} onOverride={onOverride} onDelete={onDelete} onAdd={onAdd} />

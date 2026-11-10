@@ -1,3 +1,4 @@
+import { cashflowImpact, consumptionAmount, transactionOverride } from './financial-metrics.js'
 import * as XLSX from 'xlsx'
 import { resolveClassification } from './classifier.js'
 import { getCategoryByKey, TAG_MAP } from './categories.js'
@@ -17,6 +18,7 @@ const DIRECTION_LABELS = { expense: '支出', income: '收入', refund: '退款'
 
 const CLASSIFICATION_SOURCE_LABELS = {
   override: '手动修改',
+  'auto-annotation': '自动标注',
   memory: '分类记忆',
   'merge-memory': '合并记忆',
   policy: '个人规则',
@@ -33,9 +35,9 @@ export const EXPORT_SHEET_NAMES = [
 ]
 
 export const EXPORT_HEADERS = {
-  '完整流水': ['完整时间', '日期', '月份', '类型', '金额', '流入金额', '流出金额', '净额', '名称', '交易对象', '具体商品或服务', '账单原商品字段', '交易详情', '平台', '来源', '来源文件', '工作表', '状态', '是否计入收支', '支付方式', '账户', '余额', '交易号', '订单号', '原始分类', '一级分类', '二级分类', '消费性质', '分类依据', '截图文件', '截图匹配状态', '截图匹配分数', '截图识别置信度', '合并规则', '合并笔数'],
+  '完整流水': ['完整时间', '日期', '月份', '类型', '金额', '流入金额', '流出金额', '净额', '名称', '交易对象', '具体商品或服务', '账单原商品字段', '交易详情', '平台', '来源', '来源文件', '工作表', '状态', '是否计入收支', '支付方式', '账户', '余额', '交易号', '订单号', '原始分类', '一级分类', '二级分类', '消费性质', '分类依据', '截图文件', '截图匹配状态', '截图匹配分数', '截图识别置信度', '合并规则', '合并笔数', '净消费', '是否计入消费', '现金流影响', '消费口径说明'],
   '月度收支汇总': ['月份', '收入', '退款', '支出', '净现金流', '流水笔数'],
-  '支出分类汇总': ['月份', '一级分类', '二级分类', '笔数', '支出金额'],
+  '支出分类汇总': ['月份', '一级分类', '二级分类', '笔数', '支出金额', '原单净消费'],
   '账单原始字段': ['来源', '来源文件', '工作表', '标准时间', '标准类型', '标准金额', '完整时间', '类型', '金额', '币种', '交易对象', '具体商品或服务', '商品清单', '平台', '状态', '是否计入收支', '支付方式', '账户', '余额', '交易号', '订单号', '一级分类', '二级分类', '消费性质', '截图文件', '匹配状态', '匹配依据', '识别置信度', '来源工作表', '原始行号', '证据ID', '备注'],
   '截图识别明细': ['截图文件', '时间', '类型', '金额', '平台', '商家', '具体商品或服务', '商品清单', '匹配状态', '匹配分数', '识别置信度', '订单号', '交易号'],
   '合并原始明细': ['合并规则', '归属月份', '原交易日期', '原交易金额', '原交易名称', '原交易来源'],
@@ -72,7 +74,7 @@ export function buildTransactionExportRows(transactions, overrides = {}, memory 
     .slice()
     .sort((a, b) => b.date - a.date)
     .map(tx => {
-      const override = overrides[txKey(tx)]
+      const override = transactionOverride(tx, overrides)
       const effectiveTx = effectiveTransaction(tx, override)
       const classification = resolveClassification(effectiveTx, override, memory)
       const isExpense = (effectiveTx.direction || 'expense') === 'expense' && effectiveTx.isEffective !== false
@@ -119,6 +121,10 @@ export function buildTransactionExportRows(transactions, overrides = {}, memory 
         截图识别置信度: effectiveTx.screenshotConfidence ?? '',
         合并规则: effectiveTx.mergeMemory?.label || '',
         合并笔数: effectiveTx.mergeMemory?.count || 1,
+        净消费: consumptionAmount(tx, override),
+        是否计入消费: effectiveTx.includeInConsumption === false || direction !== 'expense' || effectiveTx.isEffective === false ? '否' : '是',
+        现金流影响: cashflowImpact(tx, override),
+        消费口径说明: effectiveTx.consumptionBasis || (Number.isFinite(effectiveTx.netConsumption) ? '按总账核验的原单净额' : '原额，尚未核验关联退款'),
       }
     })
 }
@@ -137,6 +143,7 @@ export function buildMonthlySummaryRows(rows) {
     }
     current.笔数 += row.合并笔数 || 1
     current.支出金额 = Math.round((current.支出金额 + row.流出金额 + Number.EPSILON) * 100) / 100
+    if (Number.isFinite(row.净消费)) current.原单净消费 = Math.round(((current.原单净消费 || 0) + row.净消费 + Number.EPSILON) * 100) / 100
     summary.set(key, current)
   }
   return [...summary.values()].sort((a, b) => b.月份.localeCompare(a.月份) || b.支出金额 - a.支出金额)
@@ -150,7 +157,7 @@ export function buildCashflowSummaryRows(rows) {
     if (row.类型 === '收入') current.收入 += row.流入金额
     if (row.类型 === '退款') current.退款 += row.流入金额
     current.支出 += row.流出金额
-    current.净现金流 += row.净额
+    current.净现金流 += Number.isFinite(row.现金流影响) ? row.现金流影响 : row.净额
     for (const key of ['收入', '退款', '支出', '净现金流']) current[key] = Math.round((current[key] + Number.EPSILON) * 100) / 100
     summary.set(row.月份, current)
   }

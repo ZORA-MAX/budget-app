@@ -1,3 +1,4 @@
+import { consumptionAmount, cashflowImpact, transactionOverride } from '../lib/financial-metrics'
 import { fmtMoney, getTransactionDirection, txKey } from '../lib/csv-parser'
 
 const DIRECTION = {
@@ -23,7 +24,7 @@ export default function CashflowLedger({ transactions, overrides = {} }) {
       </div>
       <div className="divide-y divide-gray-100 dark:divide-gray-800">
         {transactions.slice().sort((a, b) => b.date - a.date).map((originalTx, index) => {
-          const override = overrides[txKey(originalTx)]
+          const override = transactionOverride(originalTx, overrides)
           const tx = {
             ...originalTx,
             name: override?.editedName ?? originalTx.name,
@@ -54,6 +55,8 @@ export default function CashflowLedger({ transactions, overrides = {} }) {
                 </div>
               </summary>
               <div className="mt-3 rounded-lg bg-gray-50 dark:bg-gray-900 p-3 text-[11px] text-ink-secondary grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1.5">
+                <div>计入消费：{fmtMoney(consumptionAmount(originalTx, override))}</div>
+                <div>现金流影响：{fmtMoney(cashflowImpact(originalTx, override))}</div>
                 <div>状态：{tx.status || '—'}</div>
                 <div>支付方式：{tx.paymentMethod || '—'}</div>
                 <div>交易号：{tx.transactionId || '—'}</div>

@@ -19,8 +19,8 @@ test('keeps WeChat income, refunds, failed rows, full time and raw fields', () =
   assert.equal(rows[0].signedAmount, 5000)
   assert.equal(rows[0].date.getSeconds(), 45)
   assert.equal(rows[0].rawFields['交易单号'], 'wx-income')
-  assert.equal(rows[1].direction, 'refund')
-  assert.equal(rows[1].signedAmount, 88.8)
+  assert.equal(rows[1].direction, 'expense')
+  assert.equal(rows[1].signedAmount, -88.8)
   assert.equal(rows[2].isEffective, false)
   assert.equal(rows[2].signedAmount, 0)
 })
@@ -99,4 +99,54 @@ test('prefers the skill webpage import sheet and preserves reconciled evidence f
   assert.equal(rows[0].orderId, '001234')
   assert.deepEqual(rows[0].itemNames, ['蓝牙耳机保护套', '挂绳'])
   assert.equal(rows[0].evidenceId, 'EV-001')
+})
+
+
+test('keeps explicit original payments separate from actual refunds and imports reviewed net fields', () => {
+  const csv = [
+    '完整时间,类型,金额,交易对象,具体商品或服务,状态,是否计入收支,一级分类,二级分类,消费性质,匹配状态,净消费,是否计入消费,现金流影响',
+    '2026-09-01 10:00:00,支出,100,商家,衣服,交易关闭（已付款后全退）,是,形象管理,服装,弹性,已核验,0,是,-100',
+    '2026-09-02 10:00:00,退款,100,商家,衣服退款,成功,是,,,,已核验,0,否,100',
+    '2026-09-03 10:00:00,资金流转,2702.02,银行,借款本金还款,成功,是,资金流转,借还款,非消费,已核验,0,否,-2702.02',
+  ].join('\n')
+  const rows = parseCSV(csv)
+  assert.equal(rows.length, 3)
+  assert.equal(rows[0].direction, 'expense')
+  assert.equal(rows[0].isEffective, true)
+  assert.equal(rows[0].amount, 100)
+  assert.equal(rows[0].netConsumption, 0)
+  assert.deepEqual(rows[0].importedClassification, { categoryLabel: '形象管理', subcategoryLabel: '服装', tagLabels: '弹性' })
+  assert.equal(rows[1].direction, 'refund')
+  assert.equal(rows[2].includeInConsumption, false)
+  assert.equal(rows[2].cashflowImpact, -2702.02)
+})
+
+
+test('raw-provider refund credits use refund type without relabeling the original payment', () => {
+  const wechat = [
+    '微信支付账单明细',
+    '交易时间,交易类型,交易对方,商品,收/支,金额(元),当前状态',
+    '2026-09-01 10:00:00,商户消费,商户,衣服,支出,100,已全额退款',
+    '2026-09-02 10:00:00,商户消费退款,商户,衣服,收入,100,退款成功',
+  ].join('\n')
+  assert.deepEqual(parseCSV(wechat).map(tx => tx.direction), ['expense', 'refund'])
+  const alipay = [
+    '支付宝交易明细',
+    '交易时间,交易对方,商品说明,收/支,金额,交易状态,类型',
+    '2026-09-01 10:00:00,商户,衣服,支出,100,退款成功,消费',
+    '2026-09-02 10:00:00,商户,衣服退款,收入,100,成功,退款',
+  ].join('\n')
+  assert.deepEqual(parseCSV(alipay).map(tx => tx.direction), ['expense', 'refund'])
+})
+
+test('reviewed ledger net-inclusion amount applies only to expenses', () => {
+  const csv = [
+    '完整时间,类型,金额,交易对象,具体商品或服务,状态,是否计入收支,匹配状态,净计入金额',
+    '2026-09-01 10:00:00,支出,100,商户,衣服,成功,是,已核验,60',
+    '2026-09-02 10:00:00,收入,500,公司,工资,成功,是,已核验,500',
+  ].join('\n')
+  const rows = parseCSV(csv)
+  assert.equal(rows[0].netConsumption, 60)
+  assert.equal(rows[1].netConsumption, undefined)
+  assert.equal(rows[1].amount, 500)
 })

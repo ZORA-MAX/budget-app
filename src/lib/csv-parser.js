@@ -81,12 +81,25 @@ function normalizeRow(row) {
 }
 
 function directionFrom(typeField, status = '', category = '') {
-  const text = `${typeField} ${status} ${category}`
+  const explicit = String(typeField || '').trim()
+  if (/^(退款|退回|冲正|撤销)$/.test(explicit)) return 'refund'
+  if (/^(支出|付款|消费|借方|转出)$/.test(explicit)) return 'expense'
+  if (/^(收入|收款|入账|贷方|转入)$/.test(explicit)) return 'income'
+  if (/不计收支|资金流转|转账|还款/.test(explicit)) return 'transfer'
+  const text = `${explicit} ${status} ${category}`
   if (/退款|退回|冲正|撤销/.test(text)) return 'refund'
   if (/支出|付款|消费|借方|转出/.test(text)) return 'expense'
   if (/收入|收款|入账|贷方|转入/.test(text)) return 'income'
   if (/不计收支|资金流转|转账|还款/.test(text)) return 'transfer'
   return 'other'
+}
+
+// Raw providers sometimes label actual refund credits simply as income.
+// A payment whose status later became refunded remains the original expense.
+function rawDirectionFrom(typeField, transactionType = '', status = '') {
+  const type = String(typeField || '').trim()
+  if (/退款|退回|冲正/.test(transactionType) || (/^(收入|收款|入账|贷方|转入)$/.test(type) && /退款|退回|冲正/.test(status))) return 'refund'
+  return directionFrom(typeField || transactionType, status)
 }
 
 function isEffectiveStatus(status = '') {
@@ -177,7 +190,7 @@ function parseReconciledLedger(text) {
     const productName = String(row['具体商品或服务'] || '').trim()
     const platform = String(row['平台'] || row['来源'] || '').trim()
     const source = sourceFromLabels(row['来源'], platform, row['账户'], row['支付方式'])
-    const explicitEffective = row['是否计入收支'] !== '否'
+    const explicitEffective = row['是否计入收支'] === '是' ? true : row['是否计入收支'] === '否' ? false : null
     const normalized = commonFields({
       date,
       name: [merchant, productName].filter(Boolean).join(' ') || '已清洗流水',
@@ -197,12 +210,22 @@ function parseReconciledLedger(text) {
       originalCategory: [row['一级分类'], row['二级分类']].filter(Boolean).join(' / '),
       rawFields: row,
     })
-    if (!explicitEffective) {
-      normalized.isEffective = false
-      normalized.signedAmount = 0
+    if (explicitEffective !== null) {
+      normalized.isEffective = explicitEffective
+      normalized.signedAmount = signedAmount(direction, amount, explicitEffective)
     }
+    const netValue = direction === 'expense' ? (row['净消费'] ?? row['净支出'] ?? row['净计入金额']) : undefined
+    const netConsumption = netValue !== undefined && String(netValue).trim() !== '' ? Number(String(netValue).replace(/[¥,￥\s]/g, '')) : undefined
+    if (netConsumption !== undefined && (!Number.isFinite(netConsumption) || netConsumption < 0)) throw new Error('净消费金额无效，请核对导入表')
+    const inclusion = row['是否计入消费']
+    const impact = row['现金流影响']
     rows.push({
       ...normalized,
+      ...(netConsumption !== undefined ? { netConsumption: Math.max(0, netConsumption) } : {}),
+      ...(inclusion === '是' || inclusion === '否' ? { includeInConsumption: inclusion === '是' } : {}),
+      ...(impact !== undefined && String(impact).trim() !== '' ? { cashflowImpact: cleanAmount(String(impact)) } : {}),
+      consumptionBasis: row['消费口径说明'] || '',
+      importedClassification: { categoryLabel: row['一级分类'] || '', subcategoryLabel: row['二级分类'] || '', tagLabels: row['消费性质'] || '' },
       currency: row['币种'] || 'CNY',
       itemNames: String(row['商品清单'] || '').split('、').map(item => item.trim()).filter(Boolean),
       screenshotFile: row['截图文件'] || '',
@@ -231,7 +254,7 @@ function parseWechat(text) {
     const name = [merchant, productName].filter(Boolean).join(' ')
     const details = joinDetails([row['交易类型'], row['支付方式'], row['备注']])
     const status = row['当前状态'] || row['交易状态'] || ''
-    const direction = directionFrom(row['收/支'] || row['交易类型'], status)
+    const direction = rawDirectionFrom(row['收/支'], row['交易类型'] || '', status)
     rows.push(commonFields({
       date,
       name,
@@ -270,7 +293,7 @@ function parseAlipay(text) {
     const productName = (r['商品名称'] || r['商品说明'] || '').trim()
     const name = [merchant, productName].filter(Boolean).join(' ')
     const details = joinDetails([r['类型'], r['交易来源地'], r['付款方式'], r['备注']])
-    const direction = directionFrom(typeField || r['类型'], status)
+    const direction = rawDirectionFrom(typeField, r['类型'] || '', status)
     rows.push(commonFields({
       date,
       name,
@@ -415,6 +438,7 @@ export function fmtMoney(n) {
 }
 
 export function txKey(tx) {
+  if (typeof tx.stableKey === 'string' && tx.stableKey.trim()) return tx.stableKey
   const direction = tx.direction && tx.direction !== 'expense' ? `_${tx.direction}` : ''
   return `${tx.date.toISOString()}_${tx.amount}_${tx.name}${direction}`
 }

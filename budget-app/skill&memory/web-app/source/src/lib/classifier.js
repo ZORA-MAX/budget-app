@@ -1,6 +1,7 @@
 import { CATEGORIES, getDefaultTags, getPreferredNatureTag, normalizeExclusiveTags } from './categories.js'
 import { recallClassification } from './classification-memory.js'
 import { matchPersonalPolicy } from './personal-policy.js'
+import { consumptionAmount, transactionOverride } from './financial-metrics.js'
 
 // Map cashbook's original categories to our category keys
 const CASHBOOK_CAT_MAP = {
@@ -61,7 +62,7 @@ function finalizeClassification(tx, result) {
 
 export function resolveClassification(tx, override, memory = {}) {
   if (override) {
-    return finalizeClassification(tx, { ...override, source: 'override' })
+    return finalizeClassification(tx, { ...override, source: override.annotationSource && override.annotationSource !== 'manual' ? 'auto-annotation' : 'override' })
   }
 
   const learned = recallClassification(tx, memory)
@@ -100,9 +101,9 @@ export function resolveClassification(tx, override, memory = {}) {
 export function summarizeByCategory(transactions, overrides = {}, memory = {}) {
   const map = {}
   for (const tx of transactions) {
-    const key = `${tx.date.toISOString()}_${tx.amount}_${tx.name}${tx.recordId ? `_${tx.recordId}` : ''}`
-    const override = overrides[key]
-    const effectiveAmount = Number.isFinite(override?.editedAmount) ? override.editedAmount : tx.amount
+    const override = transactionOverride(tx, overrides)
+    const effectiveAmount = consumptionAmount(tx, override)
+    if (effectiveAmount <= 0) continue
     const effectiveTx = { ...tx, name: override?.editedName ?? tx.name, amount: effectiveAmount }
     const { catKey, subKey } = resolveClassification(effectiveTx, override, memory)
 

@@ -1,3 +1,4 @@
+import { loadDebtLedger, saveDebtLedger, validateDebtLedger } from './debt-ledger.js'
 import { openDB } from 'idb'
 import { analysisRowsToMemoryRecords, classificationMemoryKey, mergeMemoryRecord } from './classification-memory.js'
 
@@ -138,6 +139,9 @@ function validateMonthRecord(record) {
       }
       const amount = Number(tx.amount)
       if (!Number.isFinite(amount)) throw new Error(`${record.monthKey} 中包含无效金额`)
+      if (tx.netConsumption !== undefined && (!Number.isFinite(tx.netConsumption) || tx.netConsumption < 0)) throw new Error('净消费金额无效')
+      if (tx.includeInConsumption !== undefined && typeof tx.includeInConsumption !== 'boolean') throw new Error('消费纳入标记无效')
+      if (tx.cashflowImpact !== undefined && !Number.isFinite(tx.cashflowImpact)) throw new Error('现金流金额无效')
       return { ...tx, name: String(tx.name).trim(), amount, date: normalizeDate(tx.date) }
     }),
     updatedAt: record.updatedAt || new Date().toISOString(),
@@ -170,6 +174,7 @@ export async function createFullBackup() {
     schemaVersion: BACKUP_SCHEMA_VERSION,
     exportedAt: new Date().toISOString(),
     data: { months, overrides, classificationMemory },
+    ...(loadDebtLedger() ? { debtLedger: loadDebtLedger() } : {}),
   }
 }
 
@@ -182,6 +187,7 @@ export async function restoreFullBackup(payload) {
     throw new Error('备份文件不完整')
   }
 
+  const debtLedger = payload.debtLedger === undefined ? undefined : validateDebtLedger(payload.debtLedger)
   const months = payload.data.months.map(validateMonthRecord)
   const overrides = payload.data.overrides.map(validateOverrideRecord)
   const classificationMemory = (payload.data.classificationMemory || []).map(validateMemoryRecord)
@@ -206,6 +212,7 @@ export async function restoreFullBackup(payload) {
   for (const record of classificationMemory) requests.push(memoryStore.put(record))
 
   await Promise.all([...requests, transaction.done])
+  if (debtLedger !== undefined) saveDebtLedger(debtLedger)
   return {
     monthCount: months.length,
     transactionCount: months.reduce((sum, record) => sum + record.transactions.length, 0),

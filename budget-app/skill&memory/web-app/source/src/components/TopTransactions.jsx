@@ -3,20 +3,21 @@ import { resolveClassification } from '../lib/classifier'
 import { getCategoryByKey } from '../lib/categories'
 import { fmtMoney, txKey } from '../lib/csv-parser'
 import CatIcon from './CatIcon'
+import { consumptionAmount, transactionOverride } from '../lib/financial-metrics'
 
 export default function TopTransactions({ transactions, overrides = {}, memory = {} }) {
   const top = useMemo(() =>
     transactions
       .map(tx => {
         const key = txKey(tx)
-        const override = overrides[key]
+        const override = transactionOverride(tx, overrides)
         return {
           ...tx,
           name: override?.editedName ?? tx.name,
           merchant: override?.editedMerchant ?? tx.merchant ?? '',
           productName: override?.editedProductName ?? tx.productName ?? '',
           details: override?.editedDetails ?? tx.details ?? '',
-          amount: Number.isFinite(override?.editedAmount) ? override.editedAmount : tx.amount,
+          amount: consumptionAmount(tx, override),
           originalKey: key,
           override,
         }
@@ -27,7 +28,7 @@ export default function TopTransactions({ transactions, overrides = {}, memory =
 
   return (
     <div className="bg-white dark:bg-surface-card-dark rounded-xl p-4">
-      <div className="text-xs font-medium text-ink-secondary uppercase tracking-wider mb-3">最大单笔支出</div>
+      <div className="text-xs font-medium text-ink-secondary uppercase tracking-wider mb-3">最大单笔消费（净额口径）</div>
       <div className="divide-y divide-gray-100 dark:divide-gray-800">
         {top.map((tx, i) => {
           const { catKey } = resolveClassification(tx, tx.override, memory)

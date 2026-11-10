@@ -18,7 +18,7 @@ export default function TrendChart({ data }) {
       data: {
         labels: data.map(d => d.label),
         datasets: [{
-          label: '支出',
+          label: '消费额（已核净额优先）',
           data: data.map(d => Math.round(d.total)),
           backgroundColor: '#534ab7cc',
           borderRadius: 6,

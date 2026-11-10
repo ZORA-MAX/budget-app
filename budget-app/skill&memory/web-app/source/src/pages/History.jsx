@@ -1,3 +1,6 @@
+import DebtLedger from '../components/DebtLedger'
+import { loadDebtLedger } from '../lib/debt-ledger'
+import { financialMetrics, consumptionAmount, transactionOverride } from '../lib/financial-metrics'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   createFullBackup,
@@ -12,7 +15,7 @@ import {
   saveOverrides,
 } from '../lib/storage'
 import { createTaxonomySnapshot, restoreTaxonomySnapshot } from '../lib/categories'
-import { fmtMoney, getTransactionDirection, txKey } from '../lib/csv-parser'
+import { fmtMoney, txKey } from '../lib/csv-parser'
 import { summarizeByCategory } from '../lib/classifier'
 import Dashboard from '../components/Dashboard'
 
@@ -61,6 +64,7 @@ export default function History({ refreshKey }) {
   const [dataVersion, setDataVersion] = useState(0)
   const [backupStatus, setBackupStatus] = useState(null)
   const [restoring, setRestoring] = useState(false)
+  const [debtLedger, setDebtLedger] = useState(() => loadDebtLedger())
   const txsRef = useRef([])
   const overridesRef = useRef({})
   const saveQueueRef = useRef(Promise.resolve())
@@ -73,14 +77,11 @@ export default function History({ refreshKey }) {
       const entries = await Promise.all(keys.map(async key => {
         const [data, ov] = await Promise.all([loadMonth(key), loadOverrides(key)])
         if (!data) return [key, null]
-        const total = data.reduce((sum, tx) => {
-          const override = ov[txKey(tx)]
-          if (getTransactionDirection(tx, override) !== 'expense' || tx.isEffective === false) return sum
-          return sum + (Number.isFinite(override?.editedAmount) ? override.editedAmount : tx.amount)
-        }, 0)
-        const expenseTransactions = data.filter(tx => getTransactionDirection(tx, ov[txKey(tx)]) === 'expense' && tx.isEffective !== false)
+        const metrics = financialMetrics(data, ov)
+        const total = metrics.consumption
+        const expenseTransactions = data.filter(tx => consumptionAmount(tx, transactionOverride(tx, ov)) > 0)
         const byCat = summarizeByCategory(expenseTransactions, ov, learnedMemory)
-        return [key, { total, count: data.length, topCat: byCat[0]?.cat, byCat }]
+        return [key, { total, unreviewedCount: metrics.unreviewedCount, count: data.length, topCat: byCat[0]?.cat, byCat }]
       }))
       if (!active) return
       setMonths(keys)
@@ -198,6 +199,7 @@ export default function History({ refreshKey }) {
       if (!confirm('确定导入这份备份吗？备份中同月份的数据会替换本机现有数据。')) return
       const result = await restoreFullBackup(payload)
       if (payload.taxonomy) restoreTaxonomySnapshot(payload.taxonomy)
+      setDebtLedger(loadDebtLedger())
       setSelectedMonth(null)
       setDataVersion(version => version + 1)
       setBackupStatus({ type: 'success', text: `恢复完成：${result.monthCount} 个月、${result.transactionCount} 笔账单、${result.memoryCount} 条分类记忆。` })
@@ -224,6 +226,7 @@ export default function History({ refreshKey }) {
 
   return (
     <div className="space-y-4">
+      <DebtLedger ledger={debtLedger} />
       <BackupPanel months={months} memoryCount={Object.keys(memory).length} status={backupStatus} restoring={restoring} onExport={exportAllData} onRestore={restoreBackup} />
 
       {loading ? (
@@ -239,7 +242,7 @@ export default function History({ refreshKey }) {
           <div className="bg-white dark:bg-surface-card-dark rounded-xl p-4">
             <div className="flex items-center justify-between mb-3">
               <div><div className="text-xs text-ink-secondary">累计记录</div><div className="text-2xl font-semibold text-ink dark:text-white">{months.length} 个月</div></div>
-              <div className="text-right"><div className="text-xs text-ink-secondary">累计支出</div><div className="text-2xl font-semibold text-ink dark:text-white">{fmtMoney(grandTotal)}</div></div>
+              <div className="text-right"><div className="text-xs text-ink-secondary">累计消费（混合核验进度）</div><div className="text-2xl font-semibold text-ink dark:text-white">{fmtMoney(grandTotal)}</div></div>
             </div>
             <div className="text-xs text-ink-tertiary">共 {totalTxCount} 笔交易 · 数据保存在当前浏览器</div>
           </div>
@@ -254,7 +257,7 @@ export default function History({ refreshKey }) {
                     <div className="text-sm font-medium text-ink dark:text-white">{year}年{parseInt(month)}月</div>
                     {summary && (
                       <div className="flex items-center gap-3 mt-1.5">
-                        <span className="text-xs text-ink-secondary">{fmtMoney(summary.total)} · {summary.count}笔</span>
+                        <span className="text-xs text-ink-secondary">{fmtMoney(summary.total)} · {summary.count}笔 · {summary.unreviewedCount ? '含未核退款' : '净消费'}</span>
                         {summary.topCat && <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ backgroundColor: summary.topCat.bg, color: summary.topCat.color }}>{summary.topCat.label}最多</span>}
                       </div>
                     )}
