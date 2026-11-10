@@ -19,13 +19,14 @@ export default function TrendChart({ data }) {
         labels: data.map(d => d.label),
         datasets: [{
           label: '消费额（已核净额优先）',
-          data: data.map(d => Math.round(d.total)),
+          data: data.map(d => d.total),
           backgroundColor: '#534ab7cc',
           borderRadius: 6,
           borderSkipped: false,
         }],
       },
       options: {
+        animation: false,
         responsive: true,
         maintainAspectRatio: false,
         plugins: {

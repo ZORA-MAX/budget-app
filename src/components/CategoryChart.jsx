@@ -19,7 +19,7 @@ export default function CategoryChart({ byCat }) {
       data: {
         labels: cats.map(c => c.cat.label),
         datasets: [{
-          data: cats.map(c => Math.round(c.total)),
+          data: cats.map(c => c.total),
           backgroundColor: cats.map(c => c.cat.color),
           borderWidth: 2,
           borderColor: isDark ? '#2c2c2e' : '#ffffff',
@@ -27,6 +27,7 @@ export default function CategoryChart({ byCat }) {
         }],
       },
       options: {
+        animation: false,
         responsive: true,
         maintainAspectRatio: false,
         cutout: '68%',
