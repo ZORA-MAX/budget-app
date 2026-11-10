@@ -232,9 +232,51 @@ export function validateBackupPayload(payload, { cloud = false } = {}) {
   return { ...payload, data: { ...payload.data, months, overrides, classificationMemory }, debtLedger, taxonomy }
 }
 
+const browserMetadata = {
+  readDebt: loadDebtLedger,
+  readTaxonomy: createTaxonomySnapshot,
+  writeDebt(value) {
+    if (value === null) clearDebtLedger({ source: 'cloud', silent: true })
+    else saveDebtLedger(value, { source: 'cloud', silent: true })
+  },
+  writeTaxonomy(value) { restoreTaxonomySnapshot(value, { source: 'cloud', silent: true }) },
+}
+
+// IDB cannot commit until we yield. Write synchronous browser metadata first,
+// then await the transaction; either failure aborts IDB and restores changed metadata.
+export async function commitRestoreTransaction(transaction, queueWrites, metadata, access = browserMetadata) {
+  const completed = transaction.done
+  completed.catch(() => {})
+  const undo = []
+  try {
+    const previousDebt = metadata.debtLedger === undefined ? undefined : access.readDebt()
+    const previousTaxonomy = metadata.taxonomy === undefined ? undefined : access.readTaxonomy()
+    const written = Promise.all(queueWrites())
+    written.catch(() => {})
+    if (metadata.debtLedger !== undefined) {
+      access.writeDebt(metadata.debtLedger)
+      undo.push(() => access.writeDebt(previousDebt))
+    }
+    if (metadata.taxonomy !== undefined) {
+      access.writeTaxonomy(metadata.taxonomy)
+      undo.push(() => access.writeTaxonomy(previousTaxonomy))
+    }
+    await Promise.all([written, completed])
+  } catch (error) {
+    try { transaction.abort() } catch { /* already aborted */ }
+    await completed.catch(() => {})
+    const rollbackErrors = []
+    for (const restore of undo.reverse()) {
+      try { restore() } catch (rollbackError) { rollbackErrors.push(rollbackError) }
+    }
+    if (rollbackErrors.length) throw new AggregateError([error, ...rollbackErrors], '恢复未完成，浏览器拒绝还原部分设置；原账单已保留')
+    throw error
+  }
+}
+
 export function restoreFullBackup(payload) {
   const validated = validateBackupPayload(payload)
-  return withBudgetWrite(async () => {
+  return withBudgetWrite(() => duringCloudReplacement(async () => {
     const { data: { months, overrides, classificationMemory }, debtLedger, taxonomy } = validated
     const monthKeys = new Set(months.map(record => record.monthKey))
 
@@ -244,30 +286,25 @@ export function restoreFullBackup(payload) {
     const monthStore = transaction.objectStore(STORE_NAME)
     const overrideStore = transaction.objectStore(OVERRIDE_STORE_NAME)
     const memoryStore = transaction.objectStore(MEMORY_STORE)
-    const requests = months.map(record => monthStore.put(record))
-
-    for (const monthKey of monthKeys) {
-      const overrideRecord = overrideByMonth.get(monthKey)
-      requests.push(overrideRecord ? overrideStore.put(overrideRecord) : overrideStore.delete(monthKey))
-    }
-    for (const record of overrides) {
-      if (!monthKeys.has(record.monthKey)) requests.push(overrideStore.put(record))
-    }
-    for (const record of classificationMemory) requests.push(memoryStore.put(record))
-
-    await Promise.all([...requests, transaction.done])
-    if (debtLedger !== undefined) {
-      if (debtLedger === null) clearDebtLedger({ silent: true })
-      else saveDebtLedger(debtLedger, { silent: true })
-    }
-    if (taxonomy !== undefined) restoreTaxonomySnapshot(taxonomy, { silent: true })
+    await commitRestoreTransaction(transaction, () => {
+      const requests = months.map(record => monthStore.put(record))
+      for (const monthKey of monthKeys) {
+        const overrideRecord = overrideByMonth.get(monthKey)
+        requests.push(overrideRecord ? overrideStore.put(overrideRecord) : overrideStore.delete(monthKey))
+      }
+      for (const record of overrides) {
+        if (!monthKeys.has(record.monthKey)) requests.push(overrideStore.put(record))
+      }
+      for (const record of classificationMemory) requests.push(memoryStore.put(record))
+      return requests
+    }, { debtLedger, taxonomy })
     emitBudgetChange('import')
     return {
       monthCount: months.length,
       transactionCount: months.reduce((sum, record) => sum + record.transactions.length, 0),
       memoryCount: classificationMemory.length,
     }
-  })
+  }))
 }
 
 export async function loadSyncCheckpoint() {
@@ -310,11 +347,8 @@ export function replaceCloudSnapshot(payload, { shouldApply = () => true, expect
     const db = await getDB()
     if (!shouldApply()) throw Object.assign(new Error('本机账本已变化，请重新选择版本'), { code: 'LOCAL_CHANGED' })
     return duringCloudReplacement(async () => {
-      const previousDebt = loadDebtLedger()
-      const previousTaxonomy = createTaxonomySnapshot()
       const transaction = db.transaction([STORE_NAME, OVERRIDE_STORE_NAME, MEMORY_STORE], 'readwrite')
       const completed = transaction.done
-      let extrasTouched = false
       completed.catch(() => {})
       try {
         if (expectedSnapshot) {
@@ -330,27 +364,17 @@ export function replaceCloudSnapshot(payload, { shouldApply = () => true, expect
           const sameTaxonomy = JSON.stringify(createTaxonomySnapshot()) === JSON.stringify(expectedSnapshot.taxonomy)
           if (!sameData || !sameDebt || !sameTaxonomy || !shouldApply()) throw Object.assign(new Error('本机账本已变化，请重新选择版本'), { code: 'LOCAL_CHANGED' })
         }
-        const requests = []
-        for (const [name, records] of [[STORE_NAME, validated.data.months], [OVERRIDE_STORE_NAME, validated.data.overrides], [MEMORY_STORE, validated.data.classificationMemory]]) {
-          const target = transaction.objectStore(name)
-          requests.push(target.clear(), ...records.map(record => target.put(record)))
-        }
-        const written = Promise.all(requests)
-        written.catch(() => {})
-        // Synchronous localStorage writes happen before the IndexedDB transaction can commit.
-        extrasTouched = true
-        restoreTaxonomySnapshot(validated.taxonomy, { source: 'cloud', silent: true })
-        if (validated.debtLedger === null) clearDebtLedger({ source: 'cloud', silent: true })
-        else saveDebtLedger(validated.debtLedger, { source: 'cloud', silent: true })
-        await Promise.all([written, completed])
+        await commitRestoreTransaction(transaction, () => {
+          const requests = []
+          for (const [name, records] of [[STORE_NAME, validated.data.months], [OVERRIDE_STORE_NAME, validated.data.overrides], [MEMORY_STORE, validated.data.classificationMemory]]) {
+            const target = transaction.objectStore(name)
+            requests.push(target.clear(), ...records.map(record => target.put(record)))
+          }
+          return requests
+        }, validated)
       } catch (error) {
         try { transaction.abort() } catch { /* already aborted */ }
         await completed.catch(() => {})
-        if (extrasTouched) {
-          restoreTaxonomySnapshot(previousTaxonomy, { source: 'cloud', silent: true })
-          if (previousDebt === null) clearDebtLedger({ source: 'cloud', silent: true })
-          else saveDebtLedger(previousDebt, { source: 'cloud', silent: true })
-        }
         throw error
       }
       emitBudgetChange('replace', 'cloud')
