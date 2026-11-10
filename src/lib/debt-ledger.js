@@ -1,3 +1,5 @@
+import { assertBudgetWritable, emitBudgetChange } from './budget-events.js'
+
 const STORAGE_KEY = 'budget-app-debt-ledger-v1'
 const NUMERIC_FIELDS = ['originalPrincipal', 'remainingPrincipal', 'unbilledPrincipal', 'unbilledInterest', 'remainingPeriods', 'annualRate', 'monthlyPayment', 'annualReserve']
 
@@ -23,8 +25,16 @@ export function loadDebtLedger() {
   try { const value = JSON.parse(window.localStorage.getItem(STORAGE_KEY) || 'null'); return value ? validateDebtLedger(value) : null } catch { return null }
 }
 
-export function saveDebtLedger(value) {
+export function saveDebtLedger(value, { source = 'local', silent = false } = {}) {
+  if (source === 'local') assertBudgetWritable()
   const validated = validateDebtLedger(value)
   if (typeof window !== 'undefined') window.localStorage.setItem(STORAGE_KEY, JSON.stringify(validated))
+  if (!silent) emitBudgetChange('debt', source)
   return validated
+}
+
+export function clearDebtLedger({ source = 'local', silent = false } = {}) {
+  if (source === 'local') assertBudgetWritable()
+  if (typeof window !== 'undefined') window.localStorage.removeItem(STORAGE_KEY)
+  if (!silent) emitBudgetChange('debt', source)
 }

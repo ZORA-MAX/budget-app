@@ -1,3 +1,5 @@
+import { assertBudgetWritable, emitBudgetChange, subscribeBudgetChanges } from './budget-events.js'
+
 export const ALL_TAGS = [
   { key: 'rigid', label: '刚需', color: '#0f6e56', bg: '#e1f5ee' },
   { key: 'fixed', label: '固定', color: '#185fa5', bg: '#e6f1fb' },
@@ -257,11 +259,13 @@ function applyBuiltInSubcategoryTagRules() {
   }
 }
 
-function persistTaxonomy() {
-  if (typeof window === 'undefined') return
-  window.localStorage.setItem(TAXONOMY_STORAGE_KEY, JSON.stringify({ categories: CATEGORIES, tags: ALL_TAGS }))
+function persistTaxonomy({ source = 'local', silent = false } = {}) {
+  if (typeof window !== 'undefined') window.localStorage.setItem(TAXONOMY_STORAGE_KEY, JSON.stringify({ categories: CATEGORIES, tags: ALL_TAGS }))
+  if (!silent) emitBudgetChange('taxonomy', source)
 }
 
+applyBuiltInSubcategoryTagRules()
+const DEFAULT_TAXONOMY = JSON.stringify({ categories: CATEGORIES, tags: ALL_TAGS })
 hydrateTaxonomy()
 applyBuiltInSubcategoryTagRules()
 
@@ -287,6 +291,7 @@ function customKey(prefix) {
 }
 
 export function addCategory(label) {
+  assertBudgetWritable()
   const key = customKey('custom_cat')
   const sub = { key: customKey('custom_sub'), label: '未分类', keywords: [] }
   const category = {
@@ -305,6 +310,7 @@ export function addCategory(label) {
 }
 
 export function renameCategory(key, label) {
+  assertBudgetWritable()
   const category = CAT_MAP[key]
   if (!category) return null
   category.label = label.trim()
@@ -314,6 +320,7 @@ export function renameCategory(key, label) {
 }
 
 export function addSubcategory(catKey, label) {
+  assertBudgetWritable()
   const category = CAT_MAP[catKey]
   if (!category) return null
   const sub = { key: customKey('custom_sub'), label: label.trim(), keywords: [] }
@@ -324,6 +331,7 @@ export function addSubcategory(catKey, label) {
 }
 
 export function renameSubcategory(catKey, subKey, label) {
+  assertBudgetWritable()
   const category = CAT_MAP[catKey]
   const sub = category?.subs?.find(item => item.key === subKey)
   if (!sub) return null
@@ -334,6 +342,7 @@ export function renameSubcategory(catKey, subKey, label) {
 }
 
 export function addTag(label) {
+  assertBudgetWritable()
   const tag = {
     key: customKey('custom_tag'),
     label: label.trim(),
@@ -347,6 +356,7 @@ export function addTag(label) {
 }
 
 export function renameTag(key, label) {
+  assertBudgetWritable()
   const tag = TAG_MAP[key]
   if (!tag) return null
   tag.label = label.trim()
@@ -393,17 +403,58 @@ export function classificationFromLabels(categoryLabel, subcategoryLabel, tagLab
 }
 
 export function createTaxonomySnapshot() {
+  // Another tab can change the shared localStorage before its broadcast arrives.
+  refreshTaxonomySnapshot()
   return JSON.parse(JSON.stringify({ categories: CATEGORIES, tags: ALL_TAGS }))
 }
 
-export function restoreTaxonomySnapshot(snapshot) {
-  if (!Array.isArray(snapshot?.categories) || !Array.isArray(snapshot?.tags) || snapshot.categories.length === 0) {
-    throw new Error('备份中的自定义分类格式不正确')
-  }
+export function refreshTaxonomySnapshot() {
+  if (typeof window === 'undefined') return
+  const saved = window.localStorage.getItem(TAXONOMY_STORAGE_KEY)
+  if (!saved) return
+  const snapshot = validateTaxonomySnapshot(JSON.parse(saved))
   CATEGORIES.splice(0, CATEGORIES.length, ...snapshot.categories)
   ALL_TAGS.splice(0, ALL_TAGS.length, ...snapshot.tags)
   rebuildTaxonomyMaps()
-  persistTaxonomy()
+}
+
+subscribeBudgetChanges(detail => {
+  if (detail.external && ['taxonomy', 'replace'].includes(detail.kind)) refreshTaxonomySnapshot()
+})
+
+export function createDefaultTaxonomySnapshot() {
+  return JSON.parse(DEFAULT_TAXONOMY)
+}
+
+export function validateTaxonomySnapshot(snapshot) {
+  if (!Array.isArray(snapshot?.categories) || !Array.isArray(snapshot?.tags) || snapshot.categories.length === 0) {
+    throw new Error('备份中的自定义分类格式不正确')
+  }
+  const categoryKeys = new Set(), subKeys = new Set(), tagKeys = new Set()
+  for (const category of snapshot.categories) {
+    if (!category?.key || !category.label || categoryKeys.has(category.key) || !Array.isArray(category.subs)) throw new Error('备份中的分类缺少名称或存在重复键')
+    categoryKeys.add(category.key)
+    for (const sub of category.subs) {
+      if (!sub?.key || !sub.label || subKeys.has(sub.key)) throw new Error('备份中的子分类格式不正确')
+      subKeys.add(sub.key)
+    }
+  }
+  for (const tag of snapshot.tags) {
+    if (!tag?.key || !tag.label || tagKeys.has(tag.key)) throw new Error('备份中的标签格式不正确')
+    tagKeys.add(tag.key)
+  }
+  return JSON.parse(JSON.stringify(snapshot))
+}
+
+export function restoreTaxonomySnapshot(snapshot, { source = 'local', silent = false } = {}) {
+  if (source === 'local') assertBudgetWritable()
+  const validated = validateTaxonomySnapshot(snapshot)
+  // Persist before changing the live maps, so quota errors leave the old taxonomy intact.
+  if (typeof window !== 'undefined') window.localStorage.setItem(TAXONOMY_STORAGE_KEY, JSON.stringify(validated))
+  CATEGORIES.splice(0, CATEGORIES.length, ...validated.categories)
+  ALL_TAGS.splice(0, ALL_TAGS.length, ...validated.tags)
+  rebuildTaxonomyMaps()
+  if (!silent) emitBudgetChange('taxonomy', source)
 }
 export const DIMENSION_LABELS = {
   rigid:'刚需固定', elastic:'弹性消费', growth:'提升投资', social:'人情流转',

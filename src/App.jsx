@@ -1,7 +1,8 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { HashRouter, Routes, Route, NavLink } from 'react-router-dom'
 import Home from './pages/Home'
 import History from './pages/History'
+import CloudSyncPanel from './components/CloudSyncPanel'
 
 function Nav() {
   const base = 'px-4 py-2 rounded-full text-sm font-medium transition-colors'
@@ -26,6 +27,11 @@ export default function App() {
   const [refreshKey, setRefreshKey] = useState(0)
   const onDataSaved = useCallback(() => setRefreshKey(k => k + 1), [])
 
+  useEffect(() => {
+    window.addEventListener('budget:cloud-data-applied', onDataSaved)
+    return () => window.removeEventListener('budget:cloud-data-applied', onDataSaved)
+  }, [onDataSaved])
+
   return (
     <HashRouter>
       <div className="max-w-2xl mx-auto px-4 pt-6 pb-16">
@@ -38,8 +44,9 @@ export default function App() {
           </p>
         </header>
         <Nav />
+        <CloudSyncPanel />
         <Routes>
-          <Route path="/" element={<Home onDataSaved={onDataSaved} />} />
+          <Route path="/" element={<Home onDataSaved={onDataSaved} refreshKey={refreshKey} />} />
           <Route path="/history" element={<History refreshKey={refreshKey} />} />
         </Routes>
       </div>

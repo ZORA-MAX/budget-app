@@ -56,7 +56,7 @@ async function parseBillFile(file) {
   return txs
 }
 
-export default function Home({ onDataSaved }) {
+export default function Home({ onDataSaved, refreshKey }) {
   const [files, setFiles] = useState([])
   const [error, setError] = useState('')
   const [analyzed, setAnalyzed] = useState(false)
@@ -73,7 +73,7 @@ export default function Home({ onDataSaved }) {
 
   useEffect(() => {
     loadClassificationMemory().then(setClassificationMemory).catch(console.error)
-  }, [])
+  }, [refreshKey])
 
   const handleFiles = useCallback(async selectedFiles => {
     const batch = Array.from(selectedFiles || [])

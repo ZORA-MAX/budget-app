@@ -14,7 +14,7 @@ import {
   saveMonth,
   saveOverrides,
 } from '../lib/storage'
-import { createTaxonomySnapshot, restoreTaxonomySnapshot } from '../lib/categories'
+import { createTaxonomySnapshot } from '../lib/categories'
 import { fmtMoney, txKey } from '../lib/csv-parser'
 import { summarizeByCategory } from '../lib/classifier'
 import Dashboard from '../components/Dashboard'
@@ -25,9 +25,9 @@ function BackupPanel({ months, memoryCount, status, restoring, onExport, onResto
   return (
     <div className="bg-white dark:bg-surface-card-dark rounded-xl p-4 space-y-3">
       <div>
-        <div className="text-sm font-medium text-ink dark:text-white">☁️ 数据备份与恢复</div>
+        <div className="text-sm font-medium text-ink dark:text-white">文件备份与恢复</div>
         <p className="text-xs text-ink-tertiary mt-1 leading-relaxed">
-          完整备份会保存全部账单、人工分类、分类学习记忆和自定义分类。恢复时只替换备份中同月份的数据。
+          下载 JSON 文件，保存全部账单、人工分类、分类记忆、自定义分类和贷款记录。文件备份不会自动同步；导入时会替换备份中同月份的数据。
         </p>
       </div>
       <div className="grid grid-cols-2 gap-2">
@@ -68,6 +68,10 @@ export default function History({ refreshKey }) {
   const txsRef = useRef([])
   const overridesRef = useRef({})
   const saveQueueRef = useRef(Promise.resolve())
+
+  useEffect(() => {
+    setDebtLedger(loadDebtLedger())
+  }, [refreshKey])
 
   useEffect(() => {
     let active = true
@@ -116,7 +120,7 @@ export default function History({ refreshKey }) {
       if (active) setBackupStatus({ type: 'error', text: `读取月份失败：${error.message}` })
     })
     return () => { active = false }
-  }, [selectedMonth])
+  }, [selectedMonth, refreshKey])
 
   const queueSave = useCallback(task => {
     saveQueueRef.current = saveQueueRef.current
@@ -198,7 +202,6 @@ export default function History({ refreshKey }) {
       const payload = JSON.parse(await file.text())
       if (!confirm('确定导入这份备份吗？备份中同月份的数据会替换本机现有数据。')) return
       const result = await restoreFullBackup(payload)
-      if (payload.taxonomy) restoreTaxonomySnapshot(payload.taxonomy)
       setDebtLedger(loadDebtLedger())
       setSelectedMonth(null)
       setDataVersion(version => version + 1)
@@ -244,7 +247,7 @@ export default function History({ refreshKey }) {
               <div><div className="text-xs text-ink-secondary">累计记录</div><div className="text-2xl font-semibold text-ink dark:text-white">{months.length} 个月</div></div>
               <div className="text-right"><div className="text-xs text-ink-secondary">累计消费（混合核验进度）</div><div className="text-2xl font-semibold text-ink dark:text-white">{fmtMoney(grandTotal)}</div></div>
             </div>
-            <div className="text-xs text-ink-tertiary">共 {totalTxCount} 笔交易 · 数据保存在当前浏览器</div>
+            <div className="text-xs text-ink-tertiary">共 {totalTxCount} 笔交易 · 当前浏览器保存有本机副本，云端状态见上方</div>
           </div>
 
           {months.map(key => {
@@ -272,7 +275,7 @@ export default function History({ refreshKey }) {
           })}
 
           <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-4">
-            <p className="text-xs text-ink-tertiary leading-relaxed">💾 刷新页面不会丢失本机数据；清除浏览器数据或换设备仍会丢失。请定期导出完整备份，并将 JSON 文件保存到 iCloud、百度网盘或其他可靠位置。</p>
+            <p className="text-xs text-ink-tertiary leading-relaxed">刷新页面会保留本机账单。换设备前请确认上方显示「已同步」，或导出完整备份；尚未同步的修改只保存在当前浏览器。清除浏览器数据会删除本机副本。</p>
           </div>
         </>
       )}

@@ -1,18 +1,22 @@
-import { loadDebtLedger, saveDebtLedger, validateDebtLedger } from './debt-ledger.js'
+import { loadDebtLedger, saveDebtLedger, clearDebtLedger, validateDebtLedger } from './debt-ledger.js'
+import { createTaxonomySnapshot, createDefaultTaxonomySnapshot, restoreTaxonomySnapshot, validateTaxonomySnapshot } from './categories.js'
+import { emitBudgetChange, withBudgetWrite, duringCloudReplacement, notifyCloudApplied } from './budget-events.js'
 import { openDB } from 'idb'
 import { analysisRowsToMemoryRecords, classificationMemoryKey, mergeMemoryRecord } from './classification-memory.js'
 
 const DB_NAME = 'budget-app'
-const DB_VERSION = 4
+const DB_VERSION = 5
 const STORE_NAME = 'monthly-data'
 const OVERRIDE_STORE_NAME = 'overrides'
 const MEMORY_STORE = 'classification-memory'
+const SYNC_STORE = 'cloud-sync-state'
 
 export const BACKUP_FORMAT = 'budget-app-backup'
 export const BACKUP_SCHEMA_VERSION = 2
 
+let databasePromise
 async function getDB() {
-  return openDB(DB_NAME, DB_VERSION, {
+  if (!databasePromise) databasePromise = openDB(DB_NAME, DB_VERSION, {
     upgrade(db) {
       if (!db.objectStoreNames.contains(STORE_NAME)) {
         db.createObjectStore(STORE_NAME, { keyPath: 'monthKey' })
@@ -23,8 +27,12 @@ async function getDB() {
       if (!db.objectStoreNames.contains(MEMORY_STORE)) {
         db.createObjectStore(MEMORY_STORE, { keyPath: 'key' })
       }
+      if (!db.objectStoreNames.contains(SYNC_STORE)) db.createObjectStore(SYNC_STORE, { keyPath: 'key' })
     },
+    blocking() { databasePromise?.then(db => db.close()); databasePromise = null },
+    terminated() { databasePromise = null },
   })
+  try { return await databasePromise } catch (error) { databasePromise = null; throw error }
 }
 
 function normalizeDate(value) {
@@ -34,9 +42,12 @@ function normalizeDate(value) {
 }
 
 export async function saveMonth(monthKey, transactions) {
-  const db = await getDB()
-  const serialized = transactions.map(tx => ({ ...tx, date: normalizeDate(tx.date) }))
-  await db.put(STORE_NAME, { monthKey, transactions: serialized, updatedAt: new Date().toISOString() })
+  return withBudgetWrite(async () => {
+    const db = await getDB()
+    const serialized = transactions.map(tx => ({ ...tx, date: normalizeDate(tx.date) }))
+    await db.put(STORE_NAME, { monthKey, transactions: serialized, updatedAt: new Date().toISOString() })
+    emitBudgetChange('month')
+  })
 }
 
 export async function loadMonth(monthKey) {
@@ -61,29 +72,38 @@ export async function loadAllMonths() {
 }
 
 export async function deleteMonth(monthKey) {
-  const db = await getDB()
-  const transaction = db.transaction([STORE_NAME, OVERRIDE_STORE_NAME], 'readwrite')
-  await Promise.all([
-    transaction.objectStore(STORE_NAME).delete(monthKey),
-    transaction.objectStore(OVERRIDE_STORE_NAME).delete(monthKey),
-    transaction.done,
-  ])
+  return withBudgetWrite(async () => {
+    const db = await getDB()
+    const transaction = db.transaction([STORE_NAME, OVERRIDE_STORE_NAME], 'readwrite')
+    await Promise.all([
+      transaction.objectStore(STORE_NAME).delete(monthKey),
+      transaction.objectStore(OVERRIDE_STORE_NAME).delete(monthKey),
+      transaction.done,
+    ])
+    emitBudgetChange('delete-month')
+  })
 }
 
 export async function clearAll() {
-  const db = await getDB()
-  const transaction = db.transaction([STORE_NAME, OVERRIDE_STORE_NAME, MEMORY_STORE], 'readwrite')
-  await Promise.all([
-    transaction.objectStore(STORE_NAME).clear(),
-    transaction.objectStore(OVERRIDE_STORE_NAME).clear(),
-    transaction.objectStore(MEMORY_STORE).clear(),
-    transaction.done,
-  ])
+  return withBudgetWrite(async () => {
+    const db = await getDB()
+    const transaction = db.transaction([STORE_NAME, OVERRIDE_STORE_NAME, MEMORY_STORE], 'readwrite')
+    await Promise.all([
+      transaction.objectStore(STORE_NAME).clear(),
+      transaction.objectStore(OVERRIDE_STORE_NAME).clear(),
+      transaction.objectStore(MEMORY_STORE).clear(),
+      transaction.done,
+    ])
+    emitBudgetChange('clear')
+  })
 }
 
 export async function saveOverrides(monthKey, overrides) {
-  const db = await getDB()
-  await db.put(OVERRIDE_STORE_NAME, { monthKey, overrides, updatedAt: new Date().toISOString() })
+  return withBudgetWrite(async () => {
+    const db = await getDB()
+    await db.put(OVERRIDE_STORE_NAME, { monthKey, overrides, updatedAt: new Date().toISOString() })
+    emitBudgetChange('overrides')
+  })
 }
 
 export async function loadOverrides(monthKey) {
@@ -107,24 +127,30 @@ export async function loadClassificationMemory() {
 }
 
 export async function rememberClassification(tx, classification) {
-  const key = classificationMemoryKey(tx)
-  if (!key) return null
-  const db = await getDB()
-  const existing = await db.get(MEMORY_STORE, key)
-  const record = mergeMemoryRecord(existing, tx, classification)
-  if (!record) return null
-  await db.put(MEMORY_STORE, record)
-  return record
+  return withBudgetWrite(async () => {
+    const key = classificationMemoryKey(tx)
+    if (!key) return null
+    const db = await getDB()
+    const existing = await db.get(MEMORY_STORE, key)
+    const record = mergeMemoryRecord(existing, tx, classification)
+    if (!record) return null
+    await db.put(MEMORY_STORE, record)
+    emitBudgetChange('classification-memory')
+    return record
+  })
 }
 
 export async function importClassificationMemory(analysis) {
-  const db = await getDB()
-  const existing = await loadClassificationMemory()
-  const next = analysisRowsToMemoryRecords(analysis, existing)
-  const records = Object.values(next)
-  const transaction = db.transaction(MEMORY_STORE, 'readwrite')
-  await Promise.all([...records.map(record => transaction.store.put(record)), transaction.done])
-  return next
+  return withBudgetWrite(async () => {
+    const db = await getDB()
+    const existing = await loadClassificationMemory()
+    const next = analysisRowsToMemoryRecords(analysis, existing)
+    const records = Object.values(next)
+    const transaction = db.transaction(MEMORY_STORE, 'readwrite')
+    await Promise.all([...records.map(record => transaction.store.put(record)), transaction.done])
+    emitBudgetChange('classification-memory')
+    return next
+  })
 }
 
 function validateMonthRecord(record) {
@@ -162,23 +188,29 @@ function validateMemoryRecord(record) {
   return { ...record, key: String(record.key), tags: Array.isArray(record.tags) ? record.tags : [] }
 }
 
-export async function createFullBackup() {
+async function readFullBackup() {
   const db = await getDB()
+  const transaction = db.transaction([STORE_NAME, OVERRIDE_STORE_NAME, MEMORY_STORE], 'readonly')
   const [months, overrides, classificationMemory] = await Promise.all([
-    db.getAll(STORE_NAME),
-    db.getAll(OVERRIDE_STORE_NAME),
-    db.getAll(MEMORY_STORE),
+    transaction.objectStore(STORE_NAME).getAll(),
+    transaction.objectStore(OVERRIDE_STORE_NAME).getAll(),
+    transaction.objectStore(MEMORY_STORE).getAll(),
   ])
+  await transaction.done
   return {
     format: BACKUP_FORMAT,
     schemaVersion: BACKUP_SCHEMA_VERSION,
     exportedAt: new Date().toISOString(),
     data: { months, overrides, classificationMemory },
-    ...(loadDebtLedger() ? { debtLedger: loadDebtLedger() } : {}),
+    debtLedger: loadDebtLedger(),
+    taxonomy: createTaxonomySnapshot(),
   }
 }
 
-export async function restoreFullBackup(payload) {
+export function createFullBackup() { return withBudgetWrite(readFullBackup) }
+export const createCloudSnapshot = createFullBackup
+
+export function validateBackupPayload(payload, { cloud = false } = {}) {
   const supportedVersion = payload?.schemaVersion === 1 || payload?.schemaVersion === BACKUP_SCHEMA_VERSION
   if (payload?.format !== BACKUP_FORMAT || !supportedVersion) {
     throw new Error('这不是受支持的月度账单完整备份')
@@ -187,35 +219,145 @@ export async function restoreFullBackup(payload) {
     throw new Error('备份文件不完整')
   }
 
-  const debtLedger = payload.debtLedger === undefined ? undefined : validateDebtLedger(payload.debtLedger)
+  const debtLedger = payload.debtLedger == null ? payload.debtLedger : validateDebtLedger(payload.debtLedger)
+  const taxonomy = payload.taxonomy === undefined ? undefined : validateTaxonomySnapshot(payload.taxonomy)
+  if (cloud && (taxonomy === undefined || debtLedger === undefined)) throw new Error('云端快照缺少债务或分类信息')
   const months = payload.data.months.map(validateMonthRecord)
   const overrides = payload.data.overrides.map(validateOverrideRecord)
   const classificationMemory = (payload.data.classificationMemory || []).map(validateMemoryRecord)
   const monthKeys = new Set(months.map(record => record.monthKey))
   if (monthKeys.size !== months.length) throw new Error('备份中存在重复月份')
-
-  const overrideByMonth = new Map(overrides.map(record => [record.monthKey, record]))
-  const db = await getDB()
-  const transaction = db.transaction([STORE_NAME, OVERRIDE_STORE_NAME, MEMORY_STORE], 'readwrite')
-  const monthStore = transaction.objectStore(STORE_NAME)
-  const overrideStore = transaction.objectStore(OVERRIDE_STORE_NAME)
-  const memoryStore = transaction.objectStore(MEMORY_STORE)
-  const requests = months.map(record => monthStore.put(record))
-
-  for (const monthKey of monthKeys) {
-    const overrideRecord = overrideByMonth.get(monthKey)
-    requests.push(overrideRecord ? overrideStore.put(overrideRecord) : overrideStore.delete(monthKey))
-  }
-  for (const record of overrides) {
-    if (!monthKeys.has(record.monthKey)) requests.push(overrideStore.put(record))
-  }
-  for (const record of classificationMemory) requests.push(memoryStore.put(record))
-
-  await Promise.all([...requests, transaction.done])
-  if (debtLedger !== undefined) saveDebtLedger(debtLedger)
-  return {
-    monthCount: months.length,
-    transactionCount: months.reduce((sum, record) => sum + record.transactions.length, 0),
-    memoryCount: classificationMemory.length,
-  }
+  if (new Set(overrides.map(record => record.monthKey)).size !== overrides.length) throw new Error('备份中存在重复人工分类月份')
+  if (new Set(classificationMemory.map(record => record.key)).size !== classificationMemory.length) throw new Error('备份中存在重复分类记忆')
+  return { ...payload, data: { ...payload.data, months, overrides, classificationMemory }, debtLedger, taxonomy }
 }
+
+export function restoreFullBackup(payload) {
+  const validated = validateBackupPayload(payload)
+  return withBudgetWrite(async () => {
+    const { data: { months, overrides, classificationMemory }, debtLedger, taxonomy } = validated
+    const monthKeys = new Set(months.map(record => record.monthKey))
+
+    const overrideByMonth = new Map(overrides.map(record => [record.monthKey, record]))
+    const db = await getDB()
+    const transaction = db.transaction([STORE_NAME, OVERRIDE_STORE_NAME, MEMORY_STORE], 'readwrite')
+    const monthStore = transaction.objectStore(STORE_NAME)
+    const overrideStore = transaction.objectStore(OVERRIDE_STORE_NAME)
+    const memoryStore = transaction.objectStore(MEMORY_STORE)
+    const requests = months.map(record => monthStore.put(record))
+
+    for (const monthKey of monthKeys) {
+      const overrideRecord = overrideByMonth.get(monthKey)
+      requests.push(overrideRecord ? overrideStore.put(overrideRecord) : overrideStore.delete(monthKey))
+    }
+    for (const record of overrides) {
+      if (!monthKeys.has(record.monthKey)) requests.push(overrideStore.put(record))
+    }
+    for (const record of classificationMemory) requests.push(memoryStore.put(record))
+
+    await Promise.all([...requests, transaction.done])
+    if (debtLedger !== undefined) {
+      if (debtLedger === null) clearDebtLedger({ silent: true })
+      else saveDebtLedger(debtLedger, { silent: true })
+    }
+    if (taxonomy !== undefined) restoreTaxonomySnapshot(taxonomy, { silent: true })
+    emitBudgetChange('import')
+    return {
+      monthCount: months.length,
+      transactionCount: months.reduce((sum, record) => sum + record.transactions.length, 0),
+      memoryCount: classificationMemory.length,
+    }
+  })
+}
+
+export async function loadSyncCheckpoint() {
+  const db = await getDB()
+  return (await db.get(SYNC_STORE, 'checkpoint'))?.value || null
+}
+
+export async function saveSyncCheckpoint(value) {
+  const db = await getDB()
+  await db.put(SYNC_STORE, { key: 'checkpoint', value })
+}
+
+function backupId() {
+  return globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
+export async function saveConflictBackups({ local, cloud, cloudRevision, reason = 'conflict' }) {
+  const db = await getDB()
+  const id = backupId()
+  // Both complete copies are stored together. A quota/transaction failure stops replacement.
+  await db.put(SYNC_STORE, { key: `backup:${id}`, id, createdAt: new Date().toISOString(), local, cloud, cloudRevision, reason })
+  return id
+}
+
+export async function getConflictBackup(id) {
+  const db = await getDB()
+  return await db.get(SYNC_STORE, `backup:${id}`) || null
+}
+
+export async function listConflictBackups() {
+  const db = await getDB()
+  const records = await db.getAll(SYNC_STORE)
+  return records.filter(record => record.key.startsWith('backup:')).sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+}
+
+// Only cloud restoration replaces the whole database. File imports above retain merge semantics.
+export function replaceCloudSnapshot(payload, { shouldApply = () => true, expectedSnapshot } = {}) {
+  const validated = validateBackupPayload(payload, { cloud: true })
+  return withBudgetWrite(async () => {
+    const db = await getDB()
+    if (!shouldApply()) throw Object.assign(new Error('本机账本已变化，请重新选择版本'), { code: 'LOCAL_CHANGED' })
+    return duringCloudReplacement(async () => {
+      const previousDebt = loadDebtLedger()
+      const previousTaxonomy = createTaxonomySnapshot()
+      const transaction = db.transaction([STORE_NAME, OVERRIDE_STORE_NAME, MEMORY_STORE], 'readwrite')
+      const completed = transaction.done
+      let extrasTouched = false
+      completed.catch(() => {})
+      try {
+        if (expectedSnapshot) {
+          // Read again while holding the IDB write transaction. This catches another tab's
+          // committed edit even if its BroadcastChannel message has not arrived yet.
+          const [months, overrides, classificationMemory] = await Promise.all([
+            transaction.objectStore(STORE_NAME).getAll(),
+            transaction.objectStore(OVERRIDE_STORE_NAME).getAll(),
+            transaction.objectStore(MEMORY_STORE).getAll(),
+          ])
+          const sameData = JSON.stringify({ months, overrides, classificationMemory }) === JSON.stringify(expectedSnapshot.data)
+          const sameDebt = JSON.stringify(loadDebtLedger()) === JSON.stringify(expectedSnapshot.debtLedger)
+          const sameTaxonomy = JSON.stringify(createTaxonomySnapshot()) === JSON.stringify(expectedSnapshot.taxonomy)
+          if (!sameData || !sameDebt || !sameTaxonomy || !shouldApply()) throw Object.assign(new Error('本机账本已变化，请重新选择版本'), { code: 'LOCAL_CHANGED' })
+        }
+        const requests = []
+        for (const [name, records] of [[STORE_NAME, validated.data.months], [OVERRIDE_STORE_NAME, validated.data.overrides], [MEMORY_STORE, validated.data.classificationMemory]]) {
+          const target = transaction.objectStore(name)
+          requests.push(target.clear(), ...records.map(record => target.put(record)))
+        }
+        const written = Promise.all(requests)
+        written.catch(() => {})
+        // Synchronous localStorage writes happen before the IndexedDB transaction can commit.
+        extrasTouched = true
+        restoreTaxonomySnapshot(validated.taxonomy, { source: 'cloud', silent: true })
+        if (validated.debtLedger === null) clearDebtLedger({ source: 'cloud', silent: true })
+        else saveDebtLedger(validated.debtLedger, { source: 'cloud', silent: true })
+        await Promise.all([written, completed])
+      } catch (error) {
+        try { transaction.abort() } catch { /* already aborted */ }
+        await completed.catch(() => {})
+        if (extrasTouched) {
+          restoreTaxonomySnapshot(previousTaxonomy, { source: 'cloud', silent: true })
+          if (previousDebt === null) clearDebtLedger({ source: 'cloud', silent: true })
+          else saveDebtLedger(previousDebt, { source: 'cloud', silent: true })
+        }
+        throw error
+      }
+      emitBudgetChange('replace', 'cloud')
+      notifyCloudApplied()
+      return { monthCount: validated.data.months.length, transactionCount: validated.data.months.reduce((sum, month) => sum + month.transactions.length, 0) }
+    })
+  })
+}
+
+export { createDefaultTaxonomySnapshot }
